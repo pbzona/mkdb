@@ -1,0 +1,49 @@
+[tools]
+go = "1.25"
+
+[tasks]
+[tasks.test]
+description = "Run the tests"
+run = "go test ./..."
+
+[tasks.coverage]
+description = "Run tests with coverage report"
+run = "go test ./... -cover -coverprofile=coverage.out && go tool cover -html=coverage.out -o coverage.html"
+
+[tasks.build]
+description = "Build the binary"
+run = "go build -ldflags=\"-s -w\" -o mkdb ."
+depends = ["test"]
+
+[tasks.dev]
+description = "Build and install to $GOPATH/bin for local testing"
+run = "go install -ldflags=\"-s -w\" ."
+
+[tasks.install]
+description = "Build and install to /usr/local/bin"
+run = "go build -ldflags=\"-s -w\" -o mkdb . && sudo mv mkdb /usr/local/bin/"
+depends = ["test"]
+
+[tasks.clean]
+description = "Remove binary and test artifacts"
+run = "rm -f mkdb coverage.out coverage.html"
+
+[tasks.lint]
+description = "Run go vet and fmt checks"
+run = "go vet ./... && gofmt -l ."
+
+[tasks.fmt]
+description = "Format all Go files"
+run = "gofmt -w ."
+
+[tasks.run]
+description = "Build and run mkdb with arguments (e.g., mise run -- start --db postgres)"
+run = "go run . $@"
+
+[tasks.quick]
+description = "Quick build without tests (for rapid iteration)"
+run = "go build -ldflags=\"-s -w\" -o mkdb ."
+
+[tasks.check]
+description = "Run all checks (test, lint, build)"
+run = "mise run test && mise run lint && mise run build"

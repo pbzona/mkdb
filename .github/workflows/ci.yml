@@ -1,0 +1,74 @@
+name: CI/CD
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.5'
+
+      - name: Run tests
+        run: go test -v ./...
+
+  build-and-release:
+    name: Build and Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.5'
+
+      - name: Build for Linux (amd64)
+        run: |
+          GOOS=linux GOARCH=amd64 go build -ldflags="-s -w -X github.com/pbzona/mkdb/cmd.Version=${GITHUB_REF#refs/tags/}" -o mkdb-linux-amd64 .
+          chmod +x mkdb-linux-amd64
+
+      - name: Build for Linux (arm64)
+        run: |
+          GOOS=linux GOARCH=arm64 go build -ldflags="-s -w -X github.com/pbzona/mkdb/cmd.Version=${GITHUB_REF#refs/tags/}" -o mkdb-linux-arm64 .
+          chmod +x mkdb-linux-arm64
+
+      - name: Build for macOS (amd64)
+        run: |
+          GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w -X github.com/pbzona/mkdb/cmd.Version=${GITHUB_REF#refs/tags/}" -o mkdb-darwin-amd64 .
+          chmod +x mkdb-darwin-amd64
+
+      - name: Build for macOS (arm64)
+        run: |
+          GOOS=darwin GOARCH=arm64 go build -ldflags="-s -w -X github.com/pbzona/mkdb/cmd.Version=${GITHUB_REF#refs/tags/}" -o mkdb-darwin-arm64 .
+          chmod +x mkdb-darwin-arm64
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            mkdb-linux-amd64
+            mkdb-linux-arm64
+            mkdb-darwin-amd64
+            mkdb-darwin-arm64
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
