@@ -70,15 +70,36 @@ func (r *Registry) Get(nameOrAlias string) (DatabaseAdapter, error) {
 	return nil, fmt.Errorf("unknown database type: %s", nameOrAlias)
 }
 
-// List returns all registered adapter names
+// List returns all registered adapter names in a consistent order
 func (r *Registry) List() []string {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
+	// Define explicit order: postgres, redis, mysql
+	order := []string{"postgres", "redis", "mysql"}
 	names := make([]string, 0, len(r.adapters))
-	for name := range r.adapters {
-		names = append(names, name)
+
+	// Add adapters in the defined order if they exist
+	for _, name := range order {
+		if _, ok := r.adapters[name]; ok {
+			names = append(names, name)
+		}
 	}
+
+	// Add any additional adapters not in the predefined order
+	for name := range r.adapters {
+		found := false
+		for _, orderedName := range order {
+			if name == orderedName {
+				found = true
+				break
+			}
+		}
+		if !found {
+			names = append(names, name)
+		}
+	}
+
 	return names
 }
 

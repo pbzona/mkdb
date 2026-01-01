@@ -35,7 +35,7 @@ var startCmd = &cobra.Command{
 
 func init() {
 	rootCmd.AddCommand(startCmd)
-	startCmd.Flags().StringVar(&dbType, "db", "", "Database type (postgres, mysql, redis)")
+	startCmd.Flags().StringVar(&dbType, "db", "", "Database type (postgres, redis, mysql)")
 	startCmd.Flags().StringVar(&dbName, "name", "", "Database name")
 	startCmd.Flags().StringVar(&version, "version", "", "Database version (default: latest)")
 	startCmd.Flags().StringVar(&port, "port", "", "Host port to bind to")

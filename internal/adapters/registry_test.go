@@ -147,6 +147,81 @@ func TestRegistry_List(t *testing.T) {
 	}
 }
 
+func TestRegistry_ListOrder(t *testing.T) {
+	registry := GetRegistry()
+
+	// Run the test multiple times to ensure consistency
+	var firstOrder []string
+	for i := 0; i < 10; i++ {
+		types := registry.List()
+
+		if i == 0 {
+			firstOrder = types
+		} else {
+			// Verify order is consistent across calls
+			if len(types) != len(firstOrder) {
+				t.Errorf("Run %d: List() returned %d types, want %d", i, len(types), len(firstOrder))
+			}
+			for j, dbType := range types {
+				if dbType != firstOrder[j] {
+					t.Errorf("Run %d: List() order inconsistent at index %d: got %s, want %s", i, j, dbType, firstOrder[j])
+				}
+			}
+		}
+	}
+
+	// Verify the expected order: postgres, redis, mysql
+	expectedOrder := []string{"postgres", "redis", "mysql"}
+	types := registry.List()
+
+	if len(types) != len(expectedOrder) {
+		t.Errorf("List() returned %d types, want %d", len(types), len(expectedOrder))
+	}
+
+	for i, expected := range expectedOrder {
+		if i >= len(types) {
+			t.Errorf("List() missing expected type at index %d: %s", i, expected)
+			continue
+		}
+		if types[i] != expected {
+			t.Errorf("List() at index %d = %s, want %s", i, types[i], expected)
+		}
+	}
+}
+
+func TestRegistry_ListCompleteness(t *testing.T) {
+	registry := GetRegistry()
+
+	// Get all registered adapters from the map
+	registry.mu.RLock()
+	registeredCount := len(registry.adapters)
+	allAdapters := make(map[string]bool)
+	for name := range registry.adapters {
+		allAdapters[name] = true
+	}
+	registry.mu.RUnlock()
+
+	// Get the list output
+	listed := registry.List()
+
+	// Verify all registered adapters are in the list
+	if len(listed) != registeredCount {
+		t.Errorf("List() returned %d types, but registry has %d adapters", len(listed), registeredCount)
+	}
+
+	for _, name := range listed {
+		if !allAdapters[name] {
+			t.Errorf("List() returned adapter '%s' that is not registered", name)
+		}
+		delete(allAdapters, name)
+	}
+
+	// Check if any adapters were missed
+	if len(allAdapters) > 0 {
+		t.Errorf("List() is missing the following registered adapters: %v", allAdapters)
+	}
+}
+
 func TestAdapters_Interface(t *testing.T) {
 	registry := GetRegistry()
 
