@@ -10,30 +10,30 @@ import (
 )
 
 var (
-	statContainerName string
+	infoContainerName string
 )
 
-var statCmd = &cobra.Command{
-	Use:   "stat",
+var infoCmd = &cobra.Command{
+	Use:   "info",
 	Short: "See info about a specific database container",
 	Long:  `Display detailed information about a database container including TTL.`,
-	RunE:  runStat,
+	RunE:  runInfo,
 }
 
 func init() {
-	rootCmd.AddCommand(statCmd)
-	statCmd.Flags().StringVar(&statContainerName, "name", "", "Container name (skips interactive selection)")
+	rootCmd.AddCommand(infoCmd)
+	infoCmd.Flags().StringVar(&infoContainerName, "name", "", "Container name (skips interactive selection)")
 }
 
-func runStat(cmd *cobra.Command, args []string) error {
+func runInfo(cmd *cobra.Command, args []string) error {
 	var container *database.Container
 	var err error
 
 	// If name is provided, look it up directly
-	if statContainerName != "" {
-		container, err = database.GetContainerByDisplayName(statContainerName)
+	if infoContainerName != "" {
+		container, err = database.GetContainerByDisplayName(infoContainerName)
 		if err != nil {
-			return fmt.Errorf("container '%s' not found", statContainerName)
+			return fmt.Errorf("container '%s' not found", infoContainerName)
 		}
 	} else {
 		// Get all containers
