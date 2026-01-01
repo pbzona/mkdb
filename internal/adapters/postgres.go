@@ -22,7 +22,7 @@ func (p *PostgresAdapter) GetAliases() []string {
 
 func (p *PostgresAdapter) GetImage(version string) string {
 	if version == "" {
-		version = "latest"
+		version = "18"
 	}
 	return fmt.Sprintf("postgres:%s", version)
 }
@@ -36,11 +36,12 @@ func (p *PostgresAdapter) GetEnvVars(dbName, username, password string) []string
 		fmt.Sprintf("POSTGRES_DB=%s", dbName),
 		fmt.Sprintf("POSTGRES_USER=%s", username),
 		fmt.Sprintf("POSTGRES_PASSWORD=%s", password),
+		"PGDATA=/var/lib/postgresql/data",
 	}
 }
 
 func (p *PostgresAdapter) GetDataPath() string {
-	return "/var/lib/postgresql/data"
+	return "/var/lib/postgresql"
 }
 
 func (p *PostgresAdapter) GetConfigPath() string {

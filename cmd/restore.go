@@ -132,6 +132,7 @@ func runRestore(cmd *cobra.Command, args []string) error {
 		hostPort,
 		"bind", // Use bind mount for restore
 		volumePath,
+		"", // Use default version for restored containers
 	)
 	if err != nil {
 		return fmt.Errorf("failed to create container: %w", err)

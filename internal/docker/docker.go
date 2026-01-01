@@ -122,10 +122,10 @@ func FindAvailablePort(startPort string) (string, error) {
 }
 
 // CreateContainer creates and starts a database container
-func CreateContainer(dbType, displayName, username, password, port, volumeType, volumePath string) (string, error) {
+func CreateContainer(dbType, displayName, username, password, port, volumeType, volumePath, version string) (string, error) {
 	ctx := context.Background()
 
-	dbConfig := GetDBConfig(dbType, "")
+	dbConfig := GetDBConfig(dbType, version)
 	containerName := containerPrefix + displayName
 
 	// Pull image if not exists

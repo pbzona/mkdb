@@ -71,6 +71,7 @@ func runRestart(cmd *cobra.Command, args []string) error {
 			container.Port,
 			container.VolumeType,
 			container.VolumePath,
+			container.Version,
 		)
 		if err != nil {
 			return fmt.Errorf("failed to create container: %w", err)

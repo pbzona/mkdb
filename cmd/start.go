@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/pbzona/mkdb/internal/config"
@@ -100,9 +101,13 @@ func runStart(cmd *cobra.Command, args []string) error {
 	// Get database configuration
 	dbConfig := docker.GetDBConfig(settings.DBType, settings.Version)
 
-	// Set version to "latest" if not specified
+	// Store the actual version that will be used (adapter provides default if empty)
 	if settings.Version == "" {
-		settings.Version = "latest"
+		// Get the actual version from the image string (e.g., "postgres:18" -> "18")
+		imageParts := strings.Split(dbConfig.Image, ":")
+		if len(imageParts) == 2 {
+			settings.Version = imageParts[1]
+		}
 	}
 
 	// Generate container name
@@ -237,6 +242,7 @@ func runStart(cmd *cobra.Command, args []string) error {
 		hostPort,
 		volumeType,
 		volumePath,
+		settings.Version,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to create container: %w", err)
