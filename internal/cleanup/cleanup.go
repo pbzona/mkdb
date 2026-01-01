@@ -143,13 +143,14 @@ func cleanupContainer(c *database.Container) error {
 		}
 	}
 
-	// Update status in database
-	c.Status = "expired"
-	if err := database.UpdateContainer(c); err != nil {
-		return fmt.Errorf("failed to update container status: %w", err)
+	// Remove volume if it exists
+	if c.VolumePath != "" {
+		if err := docker.RemoveVolume(c.VolumePath); err != nil {
+			config.Logger.Warn("Failed to remove volume", "name", c.DisplayName, "error", err)
+		}
 	}
 
-	// Log the event
+	// Log the event before deleting from database
 	event := &database.Event{
 		ContainerID: c.ID,
 		EventType:   "expired",
@@ -158,6 +159,11 @@ func cleanupContainer(c *database.Container) error {
 	}
 	if err := database.CreateEvent(event); err != nil {
 		config.Logger.Warn("Failed to log event", "error", err)
+	}
+
+	// Delete from database entirely instead of just marking as expired
+	if err := database.DeleteContainer(c.ID); err != nil {
+		return fmt.Errorf("failed to delete container from database: %w", err)
 	}
 
 	config.Logger.Info("Container cleanup complete", "name", c.DisplayName)
