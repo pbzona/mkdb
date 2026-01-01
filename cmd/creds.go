@@ -18,15 +18,18 @@ var credsCmd = &cobra.Command{
 	Long:  `Get or rotate credentials for database users.`,
 }
 
-var (
-	copyToClipboard bool
-)
-
 var credsGetCmd = &cobra.Command{
 	Use:   "get",
 	Short: "Get connection string for the default user",
 	Long:  `Display the connection string for the default database user.`,
 	RunE:  runCredsGet,
+}
+
+var credsCopyCmd = &cobra.Command{
+	Use:   "copy",
+	Short: "Copy connection string to clipboard",
+	Long:  `Copy the connection string for the default database user to the clipboard.`,
+	RunE:  runCredsCopy,
 }
 
 var credsRotateCmd = &cobra.Command{
@@ -39,40 +42,64 @@ var credsRotateCmd = &cobra.Command{
 func init() {
 	rootCmd.AddCommand(credsCmd)
 	credsCmd.AddCommand(credsGetCmd)
+	credsCmd.AddCommand(credsCopyCmd)
 	credsCmd.AddCommand(credsRotateCmd)
-
-	credsGetCmd.Flags().BoolVar(&copyToClipboard, "copy", false, "Copy connection string to clipboard")
-	credsRotateCmd.Flags().BoolVar(&copyToClipboard, "copy", false, "Copy connection string to clipboard")
 }
 
 func runCredsGet(cmd *cobra.Command, args []string) error {
+	envVar, err := getConnectionString()
+	if err != nil {
+		return err
+	}
+
+	// Print the connection string
+	fmt.Println(envVar)
+	return nil
+}
+
+func runCredsCopy(cmd *cobra.Command, args []string) error {
+	envVar, err := getConnectionString()
+	if err != nil {
+		return err
+	}
+
+	// Copy to clipboard
+	if err := clipboard.WriteAll(envVar); err != nil {
+		return fmt.Errorf("failed to copy to clipboard: %w", err)
+	}
+
+	ui.Success("Connection string copied to clipboard!")
+	return nil
+}
+
+func getConnectionString() (string, error) {
 	// Get all containers
 	containers, err := database.ListContainers()
 	if err != nil {
-		return fmt.Errorf("failed to list containers: %w", err)
+		return "", fmt.Errorf("failed to list containers: %w", err)
 	}
 
 	if len(containers) == 0 {
 		ui.Warning("No containers found")
-		return nil
+		return "", fmt.Errorf("no containers found")
 	}
 
 	// Select container
 	container, err := ui.SelectContainer(containers, "Select container")
 	if err != nil {
-		return fmt.Errorf("failed to select container: %w", err)
+		return "", fmt.Errorf("failed to select container: %w", err)
 	}
 
 	// Get default user
 	user, err := database.GetDefaultUser(container.ID)
 	if err != nil {
-		return fmt.Errorf("failed to get default user: %w", err)
+		return "", fmt.Errorf("failed to get default user: %w", err)
 	}
 
 	// Decrypt password
 	password, err := config.Decrypt(user.PasswordHash)
 	if err != nil {
-		return fmt.Errorf("failed to decrypt password: %w", err)
+		return "", fmt.Errorf("failed to decrypt password: %w", err)
 	}
 
 	// Format connection string
@@ -85,21 +112,7 @@ func runCredsGet(cmd *cobra.Command, args []string) error {
 		container.DisplayName,
 	)
 
-	envVar := credentials.FormatEnvVar(connStr)
-
-	// Copy to clipboard if requested
-	if copyToClipboard {
-		if err := clipboard.WriteAll(envVar); err != nil {
-			ui.Warning("Failed to copy to clipboard: " + err.Error())
-		} else {
-			ui.Success("Connection string copied to clipboard!")
-			return nil
-		}
-	}
-
-	// Just print the string without box
-	fmt.Println(envVar)
-	return nil
+	return credentials.FormatEnvVar(connStr), nil
 }
 
 func runCredsRotate(cmd *cobra.Command, args []string) error {
@@ -172,17 +185,7 @@ func runCredsRotate(cmd *cobra.Command, args []string) error {
 
 	envVar := credentials.FormatEnvVar(connStr)
 
-	// Copy to clipboard if requested
-	if copyToClipboard {
-		if err := clipboard.WriteAll(envVar); err != nil {
-			ui.Warning("Failed to copy to clipboard: " + err.Error())
-		} else {
-			ui.Success("Connection string copied to clipboard!")
-			return nil
-		}
-	}
-
-	// Just print the string without box
+	// Print the connection string
 	fmt.Println(envVar)
 	return nil
 }
