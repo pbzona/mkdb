@@ -9,7 +9,10 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var extendHours int
+var (
+	extendHours         int
+	extendContainerName string
+)
 
 var extendCmd = &cobra.Command{
 	Use:   "extend",
@@ -21,24 +24,36 @@ var extendCmd = &cobra.Command{
 func init() {
 	rootCmd.AddCommand(extendCmd)
 	extendCmd.Flags().IntVar(&extendHours, "hours", 1, "Number of hours to extend TTL")
+	extendCmd.Flags().StringVar(&extendContainerName, "name", "", "Container name (skips interactive selection)")
 }
 
 func runExtend(cmd *cobra.Command, args []string) error {
-	// Get all containers
-	containers, err := database.ListContainers()
-	if err != nil {
-		return fmt.Errorf("failed to list containers: %w", err)
-	}
+	var container *database.Container
+	var err error
 
-	if len(containers) == 0 {
-		ui.Warning("No containers found")
-		return nil
-	}
+	// If name is provided, look it up directly
+	if extendContainerName != "" {
+		container, err = database.GetContainerByDisplayName(extendContainerName)
+		if err != nil {
+			return fmt.Errorf("container '%s' not found", extendContainerName)
+		}
+	} else {
+		// Get all containers
+		containers, err := database.ListContainers()
+		if err != nil {
+			return fmt.Errorf("failed to list containers: %w", err)
+		}
 
-	// Select container
-	container, err := ui.SelectContainer(containers, "Select container to extend TTL")
-	if err != nil {
-		return fmt.Errorf("failed to select container: %w", err)
+		if len(containers) == 0 {
+			ui.Warning("No containers found")
+			return nil
+		}
+
+		// Select container
+		container, err = ui.SelectContainer(containers, "Select container to extend TTL")
+		if err != nil {
+			return fmt.Errorf("failed to select container: %w", err)
+		}
 	}
 
 	// Extend TTL

@@ -9,6 +9,10 @@ import (
 	"github.com/spf13/cobra"
 )
 
+var (
+	testContainerName string
+)
+
 var testCmd = &cobra.Command{
 	Use:     "test",
 	Aliases: []string{"ping"},
@@ -19,24 +23,36 @@ var testCmd = &cobra.Command{
 
 func init() {
 	rootCmd.AddCommand(testCmd)
+	testCmd.Flags().StringVar(&testContainerName, "name", "", "Container name (skips interactive selection)")
 }
 
 func runTest(cmd *cobra.Command, args []string) error {
-	// Get all containers
-	containers, err := database.ListContainers()
-	if err != nil {
-		return fmt.Errorf("failed to list containers: %w", err)
-	}
+	var container *database.Container
+	var err error
 
-	if len(containers) == 0 {
-		ui.Warning("No containers found")
-		return nil
-	}
+	// If name is provided, look it up directly
+	if testContainerName != "" {
+		container, err = database.GetContainerByDisplayName(testContainerName)
+		if err != nil {
+			return fmt.Errorf("container '%s' not found", testContainerName)
+		}
+	} else {
+		// Get all containers
+		containers, err := database.ListContainers()
+		if err != nil {
+			return fmt.Errorf("failed to list containers: %w", err)
+		}
 
-	// Prompt user to select a container
-	container, err := ui.SelectContainer(containers, "Select container to test")
-	if err != nil {
-		return fmt.Errorf("failed to select container: %w", err)
+		if len(containers) == 0 {
+			ui.Warning("No containers found")
+			return nil
+		}
+
+		// Prompt user to select a container
+		container, err = ui.SelectContainer(containers, "Select container to test")
+		if err != nil {
+			return fmt.Errorf("failed to select container: %w", err)
+		}
 	}
 
 	// Test connectivity based on database type

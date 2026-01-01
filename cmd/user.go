@@ -12,6 +12,10 @@ import (
 	"github.com/spf13/cobra"
 )
 
+var (
+	userContainerName string
+)
+
 var userCmd = &cobra.Command{
 	Use:   "user",
 	Short: "Manage database users",
@@ -36,32 +40,50 @@ func init() {
 	rootCmd.AddCommand(userCmd)
 	userCmd.AddCommand(userCreateCmd)
 	userCmd.AddCommand(userDeleteCmd)
+
+	// Add --name flag to user subcommands
+	userCreateCmd.Flags().StringVar(&userContainerName, "name", "", "Container name (skips interactive selection)")
+	userDeleteCmd.Flags().StringVar(&userContainerName, "name", "", "Container name (skips interactive selection)")
 }
 
 func runUserCreate(cmd *cobra.Command, args []string) error {
-	// Get all containers
-	containers, err := database.ListContainers()
-	if err != nil {
-		return fmt.Errorf("failed to list containers: %w", err)
-	}
+	var container *database.Container
+	var err error
 
-	// Filter running containers
-	var running []*database.Container
-	for _, c := range containers {
-		if c.Status == "running" {
-			running = append(running, c)
+	// If name is provided, look it up directly
+	if userContainerName != "" {
+		container, err = database.GetContainerByDisplayName(userContainerName)
+		if err != nil {
+			return fmt.Errorf("container '%s' not found", userContainerName)
 		}
-	}
+		if container.Status != "running" {
+			return fmt.Errorf("container '%s' is not running", userContainerName)
+		}
+	} else {
+		// Get all containers
+		containers, err := database.ListContainers()
+		if err != nil {
+			return fmt.Errorf("failed to list containers: %w", err)
+		}
 
-	if len(running) == 0 {
-		ui.Warning("No running containers found")
-		return nil
-	}
+		// Filter running containers
+		var running []*database.Container
+		for _, c := range containers {
+			if c.Status == "running" {
+				running = append(running, c)
+			}
+		}
 
-	// Select container
-	container, err := ui.SelectContainer(running, "Select container")
-	if err != nil {
-		return fmt.Errorf("failed to select container: %w", err)
+		if len(running) == 0 {
+			ui.Warning("No running containers found")
+			return nil
+		}
+
+		// Select container
+		container, err = ui.SelectContainer(running, "Select container")
+		if err != nil {
+			return fmt.Errorf("failed to select container: %w", err)
+		}
 	}
 
 	// Prompt for username
@@ -122,29 +144,43 @@ func runUserCreate(cmd *cobra.Command, args []string) error {
 }
 
 func runUserDelete(cmd *cobra.Command, args []string) error {
-	// Get all containers
-	containers, err := database.ListContainers()
-	if err != nil {
-		return fmt.Errorf("failed to list containers: %w", err)
-	}
+	var container *database.Container
+	var err error
 
-	// Filter running containers
-	var running []*database.Container
-	for _, c := range containers {
-		if c.Status == "running" {
-			running = append(running, c)
+	// If name is provided, look it up directly
+	if userContainerName != "" {
+		container, err = database.GetContainerByDisplayName(userContainerName)
+		if err != nil {
+			return fmt.Errorf("container '%s' not found", userContainerName)
 		}
-	}
+		if container.Status != "running" {
+			return fmt.Errorf("container '%s' is not running", userContainerName)
+		}
+	} else {
+		// Get all containers
+		containers, err := database.ListContainers()
+		if err != nil {
+			return fmt.Errorf("failed to list containers: %w", err)
+		}
 
-	if len(running) == 0 {
-		ui.Warning("No running containers found")
-		return nil
-	}
+		// Filter running containers
+		var running []*database.Container
+		for _, c := range containers {
+			if c.Status == "running" {
+				running = append(running, c)
+			}
+		}
 
-	// Select container
-	container, err := ui.SelectContainer(running, "Select container")
-	if err != nil {
-		return fmt.Errorf("failed to select container: %w", err)
+		if len(running) == 0 {
+			ui.Warning("No running containers found")
+			return nil
+		}
+
+		// Select container
+		container, err = ui.SelectContainer(running, "Select container")
+		if err != nil {
+			return fmt.Errorf("failed to select container: %w", err)
+		}
 	}
 
 	// Get users for this container

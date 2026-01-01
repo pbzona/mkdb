@@ -12,6 +12,10 @@ import (
 	"github.com/spf13/cobra"
 )
 
+var (
+	credsContainerName string
+)
+
 var credsCmd = &cobra.Command{
 	Use:   "creds",
 	Short: "Manage database credentials",
@@ -44,6 +48,11 @@ func init() {
 	credsCmd.AddCommand(credsGetCmd)
 	credsCmd.AddCommand(credsCopyCmd)
 	credsCmd.AddCommand(credsRotateCmd)
+
+	// Add --name flag to all creds subcommands
+	credsGetCmd.Flags().StringVar(&credsContainerName, "name", "", "Container name (skips interactive selection)")
+	credsCopyCmd.Flags().StringVar(&credsContainerName, "name", "", "Container name (skips interactive selection)")
+	credsRotateCmd.Flags().StringVar(&credsContainerName, "name", "", "Container name (skips interactive selection)")
 }
 
 func runCredsGet(cmd *cobra.Command, args []string) error {
@@ -73,21 +82,32 @@ func runCredsCopy(cmd *cobra.Command, args []string) error {
 }
 
 func getConnectionString() (string, error) {
-	// Get all containers
-	containers, err := database.ListContainers()
-	if err != nil {
-		return "", fmt.Errorf("failed to list containers: %w", err)
-	}
+	var container *database.Container
+	var err error
 
-	if len(containers) == 0 {
-		ui.Warning("No containers found")
-		return "", fmt.Errorf("no containers found")
-	}
+	// If name is provided, look it up directly
+	if credsContainerName != "" {
+		container, err = database.GetContainerByDisplayName(credsContainerName)
+		if err != nil {
+			return "", fmt.Errorf("container '%s' not found", credsContainerName)
+		}
+	} else {
+		// Get all containers
+		containers, err := database.ListContainers()
+		if err != nil {
+			return "", fmt.Errorf("failed to list containers: %w", err)
+		}
 
-	// Select container
-	container, err := ui.SelectContainer(containers, "Select container")
-	if err != nil {
-		return "", fmt.Errorf("failed to select container: %w", err)
+		if len(containers) == 0 {
+			ui.Warning("No containers found")
+			return "", fmt.Errorf("no containers found")
+		}
+
+		// Select container
+		container, err = ui.SelectContainer(containers, "Select container")
+		if err != nil {
+			return "", fmt.Errorf("failed to select container: %w", err)
+		}
 	}
 
 	// Get default user
@@ -116,29 +136,43 @@ func getConnectionString() (string, error) {
 }
 
 func runCredsRotate(cmd *cobra.Command, args []string) error {
-	// Get all containers
-	containers, err := database.ListContainers()
-	if err != nil {
-		return fmt.Errorf("failed to list containers: %w", err)
-	}
+	var container *database.Container
+	var err error
 
-	// Filter running containers
-	var running []*database.Container
-	for _, c := range containers {
-		if c.Status == "running" {
-			running = append(running, c)
+	// If name is provided, look it up directly
+	if credsContainerName != "" {
+		container, err = database.GetContainerByDisplayName(credsContainerName)
+		if err != nil {
+			return fmt.Errorf("container '%s' not found", credsContainerName)
 		}
-	}
+		if container.Status != "running" {
+			return fmt.Errorf("container '%s' is not running", credsContainerName)
+		}
+	} else {
+		// Get all containers
+		containers, err := database.ListContainers()
+		if err != nil {
+			return fmt.Errorf("failed to list containers: %w", err)
+		}
 
-	if len(running) == 0 {
-		ui.Warning("No running containers found")
-		return nil
-	}
+		// Filter running containers
+		var running []*database.Container
+		for _, c := range containers {
+			if c.Status == "running" {
+				running = append(running, c)
+			}
+		}
 
-	// Select container
-	container, err := ui.SelectContainer(running, "Select container")
-	if err != nil {
-		return fmt.Errorf("failed to select container: %w", err)
+		if len(running) == 0 {
+			ui.Warning("No running containers found")
+			return nil
+		}
+
+		// Select container
+		container, err = ui.SelectContainer(running, "Select container")
+		if err != nil {
+			return fmt.Errorf("failed to select container: %w", err)
+		}
 	}
 
 	// Get default user

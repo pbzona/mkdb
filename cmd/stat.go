@@ -9,6 +9,10 @@ import (
 	"github.com/spf13/cobra"
 )
 
+var (
+	statContainerName string
+)
+
 var statCmd = &cobra.Command{
 	Use:   "stat",
 	Short: "See info about a specific database container",
@@ -18,24 +22,36 @@ var statCmd = &cobra.Command{
 
 func init() {
 	rootCmd.AddCommand(statCmd)
+	statCmd.Flags().StringVar(&statContainerName, "name", "", "Container name (skips interactive selection)")
 }
 
 func runStat(cmd *cobra.Command, args []string) error {
-	// Get all containers
-	containers, err := database.ListContainers()
-	if err != nil {
-		return fmt.Errorf("failed to list containers: %w", err)
-	}
+	var container *database.Container
+	var err error
 
-	if len(containers) == 0 {
-		ui.Warning("No containers found")
-		return nil
-	}
+	// If name is provided, look it up directly
+	if statContainerName != "" {
+		container, err = database.GetContainerByDisplayName(statContainerName)
+		if err != nil {
+			return fmt.Errorf("container '%s' not found", statContainerName)
+		}
+	} else {
+		// Get all containers
+		containers, err := database.ListContainers()
+		if err != nil {
+			return fmt.Errorf("failed to list containers: %w", err)
+		}
 
-	// Select container
-	container, err := ui.SelectContainer(containers, "Select container to view")
-	if err != nil {
-		return fmt.Errorf("failed to select container: %w", err)
+		if len(containers) == 0 {
+			ui.Warning("No containers found")
+			return nil
+		}
+
+		// Select container
+		container, err = ui.SelectContainer(containers, "Select container to view")
+		if err != nil {
+			return fmt.Errorf("failed to select container: %w", err)
+		}
 	}
 
 	// Try to get the actual version from the running container

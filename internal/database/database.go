@@ -143,6 +143,19 @@ func GetContainer(name string) (*Container, error) {
 	return c, nil
 }
 
+// GetContainerByDisplayName retrieves a container by display name
+func GetContainerByDisplayName(displayName string) (*Container, error) {
+	c := &Container{}
+	err := db.QueryRow(`
+		SELECT id, name, display_name, type, version, container_id, port, status, created_at, expires_at, volume_type, volume_path
+		FROM containers WHERE display_name = ?
+	`, displayName).Scan(&c.ID, &c.Name, &c.DisplayName, &c.Type, &c.Version, &c.ContainerID, &c.Port, &c.Status, &c.CreatedAt, &c.ExpiresAt, &c.VolumeType, &c.VolumePath)
+	if err != nil {
+		return nil, err
+	}
+	return c, nil
+}
+
 // GetContainerByID retrieves a container by ID
 func GetContainerByID(id int) (*Container, error) {
 	c := &Container{}

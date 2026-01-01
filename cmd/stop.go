@@ -10,6 +10,10 @@ import (
 	"github.com/spf13/cobra"
 )
 
+var (
+	stopContainerName string
+)
+
 var stopCmd = &cobra.Command{
 	Use:   "stop",
 	Short: "Stop an existing database container",
@@ -19,32 +23,47 @@ var stopCmd = &cobra.Command{
 
 func init() {
 	rootCmd.AddCommand(stopCmd)
+	stopCmd.Flags().StringVar(&stopContainerName, "name", "", "Container name (skips interactive selection)")
 }
 
 func runStop(cmd *cobra.Command, args []string) error {
-	// Get all containers
-	containers, err := database.ListContainers()
-	if err != nil {
-		return fmt.Errorf("failed to list containers: %w", err)
-	}
+	var container *database.Container
+	var err error
 
-	// Filter running containers
-	var running []*database.Container
-	for _, c := range containers {
-		if c.Status == "running" {
-			running = append(running, c)
+	// If name is provided, look it up directly
+	if stopContainerName != "" {
+		container, err = database.GetContainerByDisplayName(stopContainerName)
+		if err != nil {
+			return fmt.Errorf("container '%s' not found", stopContainerName)
 		}
-	}
+		if container.Status != "running" {
+			return fmt.Errorf("container '%s' is not running", stopContainerName)
+		}
+	} else {
+		// Get all containers
+		containers, err := database.ListContainers()
+		if err != nil {
+			return fmt.Errorf("failed to list containers: %w", err)
+		}
 
-	if len(running) == 0 {
-		ui.Warning("No running containers found")
-		return nil
-	}
+		// Filter running containers
+		var running []*database.Container
+		for _, c := range containers {
+			if c.Status == "running" {
+				running = append(running, c)
+			}
+		}
 
-	// Select container
-	container, err := ui.SelectContainer(running, "Select container to stop")
-	if err != nil {
-		return fmt.Errorf("failed to select container: %w", err)
+		if len(running) == 0 {
+			ui.Warning("No running containers found")
+			return nil
+		}
+
+		// Select container
+		container, err = ui.SelectContainer(running, "Select container to stop")
+		if err != nil {
+			return fmt.Errorf("failed to select container: %w", err)
+		}
 	}
 
 	ui.Info(fmt.Sprintf("Stopping container '%s'...", container.DisplayName))

@@ -10,6 +10,10 @@ import (
 	"github.com/spf13/cobra"
 )
 
+var (
+	rmContainerName string
+)
+
 var rmCmd = &cobra.Command{
 	Use:     "remove",
 	Aliases: []string{"rm"},
@@ -20,24 +24,36 @@ var rmCmd = &cobra.Command{
 
 func init() {
 	rootCmd.AddCommand(rmCmd)
+	rmCmd.Flags().StringVar(&rmContainerName, "name", "", "Container name (skips interactive selection)")
 }
 
 func runRm(cmd *cobra.Command, args []string) error {
-	// Get all containers
-	containers, err := database.ListContainers()
-	if err != nil {
-		return fmt.Errorf("failed to list containers: %w", err)
-	}
+	var container *database.Container
+	var err error
 
-	if len(containers) == 0 {
-		ui.Warning("No containers found")
-		return nil
-	}
+	// If name is provided, look it up directly
+	if rmContainerName != "" {
+		container, err = database.GetContainerByDisplayName(rmContainerName)
+		if err != nil {
+			return fmt.Errorf("container '%s' not found", rmContainerName)
+		}
+	} else {
+		// Get all containers
+		containers, err := database.ListContainers()
+		if err != nil {
+			return fmt.Errorf("failed to list containers: %w", err)
+		}
 
-	// Select container
-	container, err := ui.SelectContainer(containers, "Select container to remove")
-	if err != nil {
-		return fmt.Errorf("failed to select container: %w", err)
+		if len(containers) == 0 {
+			ui.Warning("No containers found")
+			return nil
+		}
+
+		// Select container
+		container, err = ui.SelectContainer(containers, "Select container to remove")
+		if err != nil {
+			return fmt.Errorf("failed to select container: %w", err)
+		}
 	}
 
 	// Confirm deletion

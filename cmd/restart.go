@@ -11,6 +11,10 @@ import (
 	"github.com/spf13/cobra"
 )
 
+var (
+	restartContainerName string
+)
+
 var restartCmd = &cobra.Command{
 	Use:   "restart",
 	Short: "Restart a database container",
@@ -20,24 +24,36 @@ var restartCmd = &cobra.Command{
 
 func init() {
 	rootCmd.AddCommand(restartCmd)
+	restartCmd.Flags().StringVar(&restartContainerName, "name", "", "Container name (skips interactive selection)")
 }
 
 func runRestart(cmd *cobra.Command, args []string) error {
-	// Get all containers
-	containers, err := database.ListContainers()
-	if err != nil {
-		return fmt.Errorf("failed to list containers: %w", err)
-	}
+	var container *database.Container
+	var err error
 
-	if len(containers) == 0 {
-		ui.Warning("No containers found")
-		return nil
-	}
+	// If name is provided, look it up directly
+	if restartContainerName != "" {
+		container, err = database.GetContainerByDisplayName(restartContainerName)
+		if err != nil {
+			return fmt.Errorf("container '%s' not found", restartContainerName)
+		}
+	} else {
+		// Get all containers
+		containers, err := database.ListContainers()
+		if err != nil {
+			return fmt.Errorf("failed to list containers: %w", err)
+		}
 
-	// Select container
-	container, err := ui.SelectContainer(containers, "Select container to restart")
-	if err != nil {
-		return fmt.Errorf("failed to select container: %w", err)
+		if len(containers) == 0 {
+			ui.Warning("No containers found")
+			return nil
+		}
+
+		// Select container
+		container, err = ui.SelectContainer(containers, "Select container to restart")
+		if err != nil {
+			return fmt.Errorf("failed to select container: %w", err)
+		}
 	}
 
 	ui.Info(fmt.Sprintf("Restarting container '%s'...", container.DisplayName))
