@@ -5,10 +5,10 @@ A CLI tool to easily create and manage local Docker database containers for deve
 ## Features
 
 - **Multiple Database Types**: Support for PostgreSQL, MySQL, and Redis
-- **Simple Interface**: Interactive menus with vim keybindings
-- **Automatic Cleanup**: Containers expire after 24 hours by default (configurable)
+- **Simple Interface**: Interactive menus with vim keybindings or non-interactive with `--name` flag
+- **Automatic Cleanup**: Containers expire after 2 hours by default (configurable)
 - **Secure Credentials**: Encrypted password storage using AES-256-GCM
-- **Volume Management**: Named volumes or custom paths for data persistence
+- **Automatic Volume Management**: Volumes created automatically, preserved on stop, removed on cleanup
 - **User Management**: Create and manage additional database users
 - **Connection Strings**: Auto-generated connection strings in environment variable format
 - **TTL Management**: Extend container lifetime to prevent automatic cleanup
@@ -71,12 +71,14 @@ mkdb ls
 
 3. **View database details**:
 ```bash
-mkdb stat
+mkdb info
 ```
 
 4. **Get connection credentials**:
 ```bash
 mkdb creds get
+# or copy to clipboard
+mkdb creds copy
 ```
 
 5. **Stop a database** (preserves data):
@@ -100,10 +102,10 @@ Create a new database container.
 **Flags:**
 - `--db` - Database type (postgres/pg, mysql, redis)
 - `--name` - Database name
-- `--version` - Database version (default: latest)
+- `--version` - Database version (default: postgres=18, mysql=latest, redis=latest)
 - `--port` - Host port to bind to (default: database default port)
 - `--volume` - Volume configuration: "none", "named", or a custom path (optional)
-- `--ttl` - Time to live in hours (default: 24)
+- `--ttl` - Time to live in hours (default: 2)
 - `--repeat` - Use settings from last database created
 
 **Smart Prompting:**
@@ -187,18 +189,32 @@ The list command displays containers in a formatted table with:
 
 ### `mkdb stop`
 
-Stop and remove a container (volume is preserved).
+Stop a running container while preserving its data.
+
+**Flags:**
+- `--name` - Container name (skips interactive selection)
 
 ```bash
+# Interactive mode
 mkdb stop
+
+# Non-interactive mode
+mkdb stop --name mydb
 ```
 
 ### `mkdb restart`
 
-Restart an existing container.
+Restart a stopped container with its existing data.
+
+**Flags:**
+- `--name` - Container name (skips interactive selection)
 
 ```bash
+# Interactive mode
 mkdb restart
+
+# Non-interactive mode
+mkdb restart --name mydb
 ```
 
 ### `mkdb config`
@@ -232,13 +248,21 @@ mkdb restart
 
 Delete a container and its volume permanently.
 
+**Flags:**
+- `--name` - Container name (skips interactive selection)
+
 ```bash
+# Interactive mode
 mkdb remove
+
+# Non-interactive mode
+mkdb remove --name mydb
+
 # or use the shorter alias
-mkdb rm
+mkdb rm --name mydb
 ```
 
-### `mkdb stat`
+### `mkdb info`
 
 Display detailed information about a container including:
 - Database type and version
@@ -248,8 +272,15 @@ Display detailed information about a container including:
 - Time remaining before auto-cleanup
 - Volume information
 
+**Flags:**
+- `--name` - Container name (skips interactive selection)
+
 ```bash
-mkdb stat
+# Interactive mode
+mkdb info
+
+# Non-interactive mode
+mkdb info --name mydb
 ```
 
 ### `mkdb creds get`
@@ -257,20 +288,20 @@ mkdb stat
 Display the connection string for the default user.
 
 **Flags:**
-- `--copy` - Copy connection string to clipboard instead of displaying it
+- `--name` - Container name (skips interactive selection)
 
 ```bash
-# Display connection string
+# Interactive mode
 mkdb creds get
 
-# Copy to clipboard
-mkdb creds get --copy
+# Non-interactive mode
+mkdb creds get --name mydb
 
 # Pipe to .env file
-mkdb creds get >> .env
+mkdb creds get --name mydb >> .env
 
 # Use in a script
-DB_URL=$(mkdb creds get)
+DB_URL=$(mkdb creds get --name mydb)
 ```
 
 **Output format:**
@@ -278,35 +309,64 @@ DB_URL=$(mkdb creds get)
 DB_URL=postgresql://dbuser:$uper$ecret@localhost:5432/mydb
 ```
 
+### `mkdb creds copy`
+
+Copy the connection string to clipboard.
+
+**Flags:**
+- `--name` - Container name (skips interactive selection)
+
+```bash
+# Interactive mode
+mkdb creds copy
+
+# Non-interactive mode
+mkdb creds copy --name mydb
+```
+
 ### `mkdb creds rotate`
 
 Generate a new password for the default user and update it in the database.
 
 **Flags:**
-- `--copy` - Copy connection string to clipboard instead of displaying it
+- `--name` - Container name (skips interactive selection)
 
 ```bash
-# Display new connection string
+# Interactive mode
 mkdb creds rotate
 
-# Copy new credentials to clipboard
-mkdb creds rotate --copy
+# Non-interactive mode
+mkdb creds rotate --name mydb
 ```
 
 ### `mkdb user create`
 
 Create a new database user with a generated password.
 
+**Flags:**
+- `--name` - Container name (skips interactive selection)
+
 ```bash
+# Interactive mode
 mkdb user create
+
+# Non-interactive mode
+mkdb user create --name mydb
 ```
 
 ### `mkdb user delete`
 
 Delete a non-default database user.
 
+**Flags:**
+- `--name` - Container name (skips interactive selection)
+
 ```bash
+# Interactive mode
 mkdb user delete
+
+# Non-interactive mode
+mkdb user delete --name mydb
 ```
 
 ### `mkdb extend`
@@ -314,28 +374,39 @@ mkdb user delete
 Extend the TTL of a container to prevent automatic cleanup.
 
 **Flags:**
-- `--hours` - Number of hours to extend (default: 24)
+- `--name` - Container name (skips interactive selection)
+- `--hours` - Number of hours to extend (default: 1)
 
 ```bash
-# Extend by 24 hours
+# Interactive mode, extend by 1 hour
 mkdb extend
 
-# Extend by 48 hours
-mkdb extend --hours 48
+# Non-interactive mode, extend by 1 hour
+mkdb extend --name mydb
+
+# Extend by custom hours
+mkdb extend --name mydb --hours 24
 ```
 
 ### `mkdb test` / `mkdb ping`
 
 Test database connectivity by running a simple query.
 
+**Flags:**
+- `--name` - Container name (skips interactive selection)
+
 ```bash
+# Interactive mode
 mkdb test
+
+# Non-interactive mode
+mkdb test --name mydb
+
 # or use the alias
-mkdb ping
+mkdb ping --name mydb
 ```
 
 This command will:
-- Prompt you to select a container
 - Execute a test query specific to the database type
 - Display the connection status and query results
 
@@ -343,6 +414,22 @@ This command will:
 - **PostgreSQL**: Runs `SELECT 1 as status, current_user, current_database();`
 - **MySQL**: Runs `SELECT 1 as status, USER() as user, DATABASE() as db;`
 - **Redis**: Runs `PING`
+
+### `mkdb cleanup`
+
+Remove expired database containers and their volumes.
+
+```bash
+mkdb cleanup
+```
+
+This command will:
+- Find all expired containers
+- Interactively prompt you to select which ones to remove
+- Delete both the container and its volume
+- Remove the container record from the database
+
+The cleanup check also runs automatically every time you execute any mkdb command.
 
 ### `mkdb version`
 
@@ -353,6 +440,22 @@ mkdb version
 # or use the flag
 mkdb --version
 ```
+
+## Container Lifecycle
+
+mkdb follows a simple container lifecycle model:
+
+1. **Create**: `mkdb start` - Creates a new container with persistent volume
+2. **Stop**: `mkdb stop` - Stops the container, preserves data
+3. **Restart**: `mkdb restart` - Restarts a stopped container with existing data
+4. **Remove**: `mkdb remove` - Permanently deletes container and volume
+5. **Cleanup**: `mkdb cleanup` - Automatically removes expired containers and volumes
+
+**Volume Management:**
+- Volumes are automatically created when you start a container
+- Volumes are preserved when you stop a container (use `restart` to start again)
+- Volumes are deleted when you explicitly remove a container
+- Volumes are deleted when a container expires and is cleaned up
 
 ## Configuration
 
@@ -397,28 +500,31 @@ These work in all commands (`--db`, `--type` filters, etc.)
 
 ### TTL (Time to Live)
 
-Containers are automatically cleaned up after their TTL expires (default: 24 hours). The cleanup check runs every time you execute a mkdb command.
+Containers are automatically cleaned up after their TTL expires (default: 2 hours). The cleanup check runs every time you execute a mkdb command.
 
 **Configuring TTL:**
 - Use `--ttl` flag when creating: `mkdb start --db postgres --name mydb --ttl 48`
-- Default TTL: 24 hours
-- Extend TTL of existing container: `mkdb extend --hours 24`
+- Default TTL: 2 hours
+- Extend TTL of existing container: `mkdb extend --name mydb --hours 1`
 
 When a container expires:
 - The container is stopped and removed
-- The volume is **preserved** (not deleted)
-- You can restart it later with `mkdb restart`
+- The volume is **removed** (deleted permanently)
+- The container record is deleted from the database
 
 **Examples:**
 ```bash
-# Short-lived test database (2 hours)
-mkdb start --db postgres --name test --ttl 2
+# Short-lived test database (1 hour)
+mkdb start --db postgres --name test --ttl 1
 
 # Long-lived development database (7 days)
 mkdb start --db postgres --name dev --ttl 168
 
-# Extend expiration of existing database
-mkdb extend --hours 48
+# Extend expiration of existing database by 1 hour
+mkdb extend --name mydb
+
+# Extend by more hours
+mkdb extend --name mydb --hours 24
 ```
 
 ## Volume Options
@@ -519,22 +625,22 @@ $ mkdb start --db postgres --name devdb
 │ DB_URL=postgresql://dbuser:$uper$ecret@localhost:5432/devdb │
 ╰──────────────────────────────────────────────────────────╯
 
-ℹ Database will expire in 24 hours (at 2025-12-24 15:00:00)
+ℹ Database will expire in 2 hours (at 2025-12-23 17:00:00)
 ℹ Use 'mkdb start --repeat' to quickly create another database with the same settings
 ```
 
-### Custom TTL for temporary database
+### Custom TTL for longer-lived database
 
 ```bash
-$ mkdb start --db postgres --name tempdb --ttl 2
-ℹ Creating postgres database 'tempdb'...
-✓ Database 'tempdb' created successfully!
+$ mkdb start --db postgres --name devdb --ttl 48
+ℹ Creating postgres database 'devdb'...
+✓ Database 'devdb' created successfully!
 
 ╭──────────────────────────────────────────────────────────╮
-│ DB_URL=postgresql://dbuser:$uper$ecret@localhost:5432/tempdb │
+│ DB_URL=postgresql://dbuser:$uper$ecret@localhost:5432/devdb │
 ╰──────────────────────────────────────────────────────────╯
 
-ℹ Database will expire in 2 hours (at 2025-12-23 17:00:00)
+ℹ Database will expire in 48 hours (at 2025-12-25 17:00:00)
 ```
 
 ### Repeat last settings
@@ -562,16 +668,14 @@ $ mkdb start
 │ DB_URL=postgresql://dbuser:$uper$ecret@localhost:5432/devdb │
 ╰──────────────────────────────────────────────────────────╯
 
-ℹ Database will expire in 24 hours (at 2025-12-24 15:00:00)
+ℹ Database will expire in 2 hours (at 2025-12-23 17:00:00)
 ```
 
 ### Extend TTL before expiration
 
 ```bash
-$ mkdb extend --hours 48
-? Select container to extend TTL: devdb (postgres)
-
-✓ Container 'devdb' TTL extended by 48 hours!
+$ mkdb extend --name devdb --hours 24
+✓ Container 'devdb' TTL extended by 24 hours!
 ℹ New expiration: 2025-12-26 15:00:00
 ```
 
@@ -704,16 +808,20 @@ mkdb/
 │   ├── stop.go
 │   ├── restart.go
 │   ├── rm.go
-│   ├── stat.go
+│   ├── info.go
 │   ├── creds.go
 │   ├── user.go
-│   └── extend.go
+│   ├── extend.go
+│   ├── test.go
+│   ├── cleanup.go
+│   └── ...
 ├── internal/
 │   ├── config/          # Configuration and encryption
 │   ├── database/        # SQLite operations
 │   ├── docker/          # Docker client wrapper
 │   ├── credentials/     # Password generation
 │   ├── cleanup/         # TTL enforcement
+│   ├── adapters/        # Database adapters (postgres, mysql, redis)
 │   └── ui/              # Terminal UI components
 ├── mise.toml            # mise task configuration
 └── main.go
