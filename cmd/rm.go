@@ -14,7 +14,7 @@ var rmCmd = &cobra.Command{
 	Use:     "remove",
 	Aliases: []string{"rm"},
 	Short:   "Delete an existing container and its volume",
-	Long:    `Delete an existing database container and optionally its volume.`,
+	Long:    `Delete an existing database container and its associated volume.`,
 	RunE:    runRm,
 }
 
