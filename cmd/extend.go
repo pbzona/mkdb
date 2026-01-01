@@ -20,7 +20,7 @@ var extendCmd = &cobra.Command{
 
 func init() {
 	rootCmd.AddCommand(extendCmd)
-	extendCmd.Flags().IntVar(&extendHours, "hours", 24, "Number of hours to extend TTL")
+	extendCmd.Flags().IntVar(&extendHours, "hours", 1, "Number of hours to extend TTL")
 }
 
 func runExtend(cmd *cobra.Command, args []string) error {
