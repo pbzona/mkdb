@@ -16,8 +16,8 @@ var (
 
 var stopCmd = &cobra.Command{
 	Use:   "stop",
-	Short: "Stop an existing database container",
-	Long:  `Stop and remove an existing database container, but preserve the volume.`,
+	Short: "Stop a database container",
+	Long:  `Stop a running database container while preserving its data. Use 'restart' to start it again.`,
 	RunE:  runStop,
 }
 

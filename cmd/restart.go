@@ -18,7 +18,7 @@ var (
 var restartCmd = &cobra.Command{
 	Use:   "restart",
 	Short: "Restart a database container",
-	Long:  `Restart an existing database container.`,
+	Long:  `Restart a stopped database container with its existing data.`,
 	RunE:  runRestart,
 }
 

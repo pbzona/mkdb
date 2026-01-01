@@ -12,7 +12,7 @@ import (
 var cleanupCmd = &cobra.Command{
 	Use:   "cleanup",
 	Short: "Clean up expired database containers",
-	Long:  `Interactively select and remove expired database containers.`,
+	Long:  `Interactively select and remove expired database containers and their volumes.`,
 	RunE:  runCleanup,
 }
 

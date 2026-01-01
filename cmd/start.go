@@ -29,7 +29,7 @@ var (
 var startCmd = &cobra.Command{
 	Use:   "start",
 	Short: "Create a new database container",
-	Long:  `Create and start a new database container with the specified configuration.`,
+	Long:  `Create and start a new database container with persistent volume storage.`,
 	RunE:  runStart,
 }
 

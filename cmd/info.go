@@ -15,8 +15,8 @@ var (
 
 var infoCmd = &cobra.Command{
 	Use:   "info",
-	Short: "See info about a specific database container",
-	Long:  `Display detailed information about a database container including TTL.`,
+	Short: "Display container information",
+	Long:  `Display detailed information about a database container including status, version, port, and TTL.`,
 	RunE:  runInfo,
 }
 

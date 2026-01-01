@@ -15,7 +15,14 @@ var rootCmd = &cobra.Command{
 	Use:   "mkdb",
 	Short: "mkdb - Easily manage local database containers",
 	Long: `mkdb is a CLI tool to create and manage local Docker database containers
-for development environments. It supports PostgreSQL, MySQL, and Redis.`,
+for development environments. It supports PostgreSQL, MySQL, and Redis.
+
+Container lifecycle:
+  start   - Create a new database container
+  stop    - Stop a container (preserves data)
+  restart - Restart a stopped container
+  remove  - Delete a container and its data
+  cleanup - Remove expired containers`,
 	Version: Version,
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 		// Initialize configuration
