@@ -20,8 +20,8 @@ description = "Build and install to $GOPATH/bin for local testing"
 run = "go install -ldflags=\"-s -w\" ."
 
 [tasks.install]
-description = "Build and install to /usr/local/bin"
-run = "go build -ldflags=\"-s -w\" -o mkdb . && sudo mv mkdb /usr/local/bin/"
+description = "Build and install to ~/.local/bin"
+run = "go build -ldflags=\"-s -w\" -o mkdb . && mkdir -p ~/.local/bin && mv mkdb ~/.local/bin/"
 depends = ["test"]
 
 [tasks.clean]
