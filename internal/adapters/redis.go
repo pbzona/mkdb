@@ -100,8 +100,13 @@ func (r *RedisAdapter) SupportsUsername() bool {
 	return false
 }
 
+func (r *RedisAdapter) SupportsUnauthenticated() bool {
+	return true
+}
+
 // GetCommandArgs returns the command line arguments to start Redis with password
 func (r *RedisAdapter) GetCommandArgs(password string) []string {
+	// If password is empty, Redis will run without authentication
 	if password != "" {
 		return []string{"redis-server", "--requirepass", password}
 	}

@@ -24,6 +24,7 @@ var (
 	volumeFlag string
 	ttlHours   int
 	useRepeat  bool
+	noAuth     bool
 )
 
 var startCmd = &cobra.Command{
@@ -42,6 +43,7 @@ func init() {
 	startCmd.Flags().StringVar(&volumeFlag, "volume", "", "Volume path (optional)")
 	startCmd.Flags().IntVar(&ttlHours, "ttl", 2, "Time to live in hours")
 	startCmd.Flags().BoolVar(&useRepeat, "repeat", false, "Use settings from last database created")
+	startCmd.Flags().BoolVar(&noAuth, "no-auth", false, "Create database without authentication")
 }
 
 func runStart(cmd *cobra.Command, args []string) error {
@@ -233,12 +235,21 @@ func runStart(cmd *cobra.Command, args []string) error {
 
 	ui.Info(fmt.Sprintf("Creating %s database '%s'...", settings.DBType, settings.Name))
 
+	// Determine credentials based on --no-auth flag
+	username := credentials.DefaultUsername
+	password := credentials.DefaultPassword
+	if noAuth {
+		username = ""
+		password = ""
+		ui.Info("Creating database without authentication")
+	}
+
 	// Create container
 	containerID, err := docker.CreateContainer(
 		settings.DBType,
 		settings.Name,
-		credentials.DefaultUsername,
-		credentials.DefaultPassword,
+		username,
+		password,
 		hostPort,
 		volumeType,
 		volumePath,
@@ -272,15 +283,18 @@ func runStart(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to store container in database: %w", err)
 	}
 
-	// Create default user
-	passwordHash, err := config.Encrypt(credentials.DefaultPassword)
-	if err != nil {
-		return fmt.Errorf("failed to encrypt password: %w", err)
+	// Create default user (or unauthenticated entry if no auth)
+	var passwordHash string
+	if !noAuth {
+		passwordHash, err = config.Encrypt(password)
+		if err != nil {
+			return fmt.Errorf("failed to encrypt password: %w", err)
+		}
 	}
 
 	user := &database.User{
 		ContainerID:  container.ID,
-		Username:     credentials.DefaultUsername,
+		Username:     username,
 		PasswordHash: passwordHash,
 		IsDefault:    true,
 		CreatedAt:    now,

@@ -116,16 +116,24 @@ func getConnectionString() (string, error) {
 		return "", fmt.Errorf("failed to get default user: %w", err)
 	}
 
-	// Decrypt password
-	password, err := config.Decrypt(user.PasswordHash)
-	if err != nil {
-		return "", fmt.Errorf("failed to decrypt password: %w", err)
+	// Handle unauthenticated databases
+	var username, password string
+	if user.Username != "" && user.PasswordHash != "" {
+		username = user.Username
+		password, err = config.Decrypt(user.PasswordHash)
+		if err != nil {
+			return "", fmt.Errorf("failed to decrypt password: %w", err)
+		}
+	} else {
+		// Unauthenticated database
+		username = ""
+		password = ""
 	}
 
 	// Format connection string
 	connStr := credentials.FormatConnectionString(
 		container.Type,
-		user.Username,
+		username,
 		password,
 		"localhost",
 		container.Port,
@@ -179,6 +187,11 @@ func runCredsRotate(cmd *cobra.Command, args []string) error {
 	user, err := database.GetDefaultUser(container.ID)
 	if err != nil {
 		return fmt.Errorf("failed to get default user: %w", err)
+	}
+
+	// Check if database is unauthenticated
+	if user.Username == "" && user.PasswordHash == "" {
+		return fmt.Errorf("cannot rotate password for unauthenticated database")
 	}
 
 	ui.Info("Generating new password...")

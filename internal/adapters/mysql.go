@@ -32,12 +32,23 @@ func (m *MySQLAdapter) GetDefaultPort() string {
 }
 
 func (m *MySQLAdapter) GetEnvVars(dbName, username, password string) []string {
-	return []string{
+	envVars := []string{
 		fmt.Sprintf("MYSQL_DATABASE=%s", dbName),
-		fmt.Sprintf("MYSQL_USER=%s", username),
-		fmt.Sprintf("MYSQL_PASSWORD=%s", password),
-		"MYSQL_ROOT_PASSWORD=rootpassword",
 	}
+
+	// If username and password are empty, allow unauthenticated root login
+	if username != "" && password != "" {
+		envVars = append(envVars,
+			fmt.Sprintf("MYSQL_USER=%s", username),
+			fmt.Sprintf("MYSQL_PASSWORD=%s", password),
+			"MYSQL_ROOT_PASSWORD=rootpassword",
+		)
+	} else {
+		// Allow empty root password for unauthenticated access
+		envVars = append(envVars, "MYSQL_ALLOW_EMPTY_PASSWORD=yes")
+	}
+
+	return envVars
 }
 
 func (m *MySQLAdapter) GetDataPath() string {
@@ -90,10 +101,18 @@ func (m *MySQLAdapter) RotatePasswordCommand(username, newPassword, dbName strin
 }
 
 func (m *MySQLAdapter) FormatConnectionString(username, password, host, port, dbName string) string {
+	// If no username/password, connect as root without authentication
+	if username == "" && password == "" {
+		return fmt.Sprintf("mysql://root@tcp(%s:%s)/%s", host, port, dbName)
+	}
 	return fmt.Sprintf("mysql://%s:%s@tcp(%s:%s)/%s", username, password, host, port, dbName)
 }
 
 func (m *MySQLAdapter) SupportsUsername() bool {
+	return true
+}
+
+func (m *MySQLAdapter) SupportsUnauthenticated() bool {
 	return true
 }
 

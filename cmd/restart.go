@@ -74,15 +74,24 @@ func runRestart(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("failed to get default user: %w", err)
 		}
 
-		password, err := config.Decrypt(user.PasswordHash)
-		if err != nil {
-			return fmt.Errorf("failed to decrypt password: %w", err)
+		// Handle unauthenticated databases
+		var username, password string
+		if user.Username != "" && user.PasswordHash != "" {
+			username = user.Username
+			password, err = config.Decrypt(user.PasswordHash)
+			if err != nil {
+				return fmt.Errorf("failed to decrypt password: %w", err)
+			}
+		} else {
+			// Unauthenticated database
+			username = ""
+			password = ""
 		}
 
 		containerID, err := docker.CreateContainer(
 			container.Type,
 			container.DisplayName,
-			user.Username,
+			username,
 			password,
 			container.Port,
 			container.VolumeType,

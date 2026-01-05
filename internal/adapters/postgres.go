@@ -32,12 +32,23 @@ func (p *PostgresAdapter) GetDefaultPort() string {
 }
 
 func (p *PostgresAdapter) GetEnvVars(dbName, username, password string) []string {
-	return []string{
+	envVars := []string{
 		fmt.Sprintf("POSTGRES_DB=%s", dbName),
-		fmt.Sprintf("POSTGRES_USER=%s", username),
-		fmt.Sprintf("POSTGRES_PASSWORD=%s", password),
 		"PGDATA=/var/lib/postgresql/data",
 	}
+
+	// If username and password are empty, run in trust mode (no authentication)
+	if username != "" && password != "" {
+		envVars = append(envVars,
+			fmt.Sprintf("POSTGRES_USER=%s", username),
+			fmt.Sprintf("POSTGRES_PASSWORD=%s", password),
+		)
+	} else {
+		// Use postgres superuser with no password (trust authentication)
+		envVars = append(envVars, "POSTGRES_HOST_AUTH_METHOD=trust")
+	}
+
+	return envVars
 }
 
 func (p *PostgresAdapter) GetDataPath() string {
@@ -92,10 +103,18 @@ func (p *PostgresAdapter) RotatePasswordCommand(username, newPassword, dbName st
 }
 
 func (p *PostgresAdapter) FormatConnectionString(username, password, host, port, dbName string) string {
+	// If no username/password, connect as postgres user without authentication
+	if username == "" && password == "" {
+		return fmt.Sprintf("postgresql://postgres@%s:%s/%s", host, port, dbName)
+	}
 	return fmt.Sprintf("postgresql://%s:%s@%s:%s/%s", username, password, host, port, dbName)
 }
 
 func (p *PostgresAdapter) SupportsUsername() bool {
+	return true
+}
+
+func (p *PostgresAdapter) SupportsUnauthenticated() bool {
 	return true
 }
 

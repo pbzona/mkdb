@@ -74,8 +74,8 @@ func Initialize() error {
 	CREATE TABLE IF NOT EXISTS users (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		container_id INTEGER NOT NULL,
-		username TEXT NOT NULL,
-		password_hash TEXT NOT NULL,
+		username TEXT,
+		password_hash TEXT,
 		is_default BOOLEAN NOT NULL DEFAULT 0,
 		created_at DATETIME NOT NULL,
 		FOREIGN KEY (container_id) REFERENCES containers(id) ON DELETE CASCADE,

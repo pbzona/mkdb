@@ -15,7 +15,11 @@ type DatabaseAdapter interface {
 	GetDefaultPort() string
 
 	// GetEnvVars returns the environment variables needed to configure the container
+	// Pass empty strings for username and password to run in unauthenticated mode
 	GetEnvVars(dbName, username, password string) []string
+
+	// SupportsUnauthenticated returns whether this database can run without authentication
+	SupportsUnauthenticated() bool
 
 	// GetDataPath returns the path inside the container where data is stored
 	GetDataPath() string
@@ -49,6 +53,7 @@ type DatabaseAdapter interface {
 
 	// GetCommandArgs returns custom command line arguments for starting the container
 	// Returns empty slice if no custom command is needed
+	// Pass empty string for password to run in unauthenticated mode
 	GetCommandArgs(password string) []string
 
 	// GetVersionCommand returns the command to get the database version
