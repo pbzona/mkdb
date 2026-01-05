@@ -107,6 +107,7 @@ Create a new database container.
 - `--volume` - Volume configuration: "none", "named", or a custom path (optional)
 - `--ttl` - Time to live in hours (default: 2)
 - `--repeat` - Use settings from last database created
+- `--no-auth` - Create database without authentication (no username/password)
 
 **Smart Prompting:**
 - Only prompts for values not provided via flags
@@ -146,11 +147,31 @@ mkdb start --db redis --name cache --volume /data/redis
 
 # Short-lived test database (expires in 2 hours)
 mkdb start --db postgres --name testdb --ttl 2
+
+# Create database without authentication
+mkdb start --db postgres --name publicdb --no-auth
 ```
 
 **Default Credentials:**
 - Username: `dbuser`
 - Password: `$uper$ecret`
+
+**Unauthenticated Access:**
+
+Use the `--no-auth` flag to create a database without authentication. This is useful for local development or testing scenarios where security is not a concern.
+
+```bash
+# PostgreSQL without authentication (uses trust mode)
+mkdb start --db postgres --name devdb --no-auth
+
+# MySQL without authentication (allows root login without password)
+mkdb start --db mysql --name devdb --no-auth
+
+# Redis without authentication (no requirepass)
+mkdb start --db redis --name cache --no-auth
+```
+
+**Note:** Unauthenticated databases cannot use password rotation (`mkdb creds rotate`). Connection strings for unauthenticated databases will not include credentials.
 
 ### `mkdb list` / `mkdb ls`
 
@@ -541,17 +562,29 @@ Connection strings are provided in the format:
 
 **PostgreSQL:**
 ```
+# With authentication
 DB_URL=postgresql://dbuser:$uper$ecret@localhost:5432/mydb
+
+# Without authentication (--no-auth)
+DB_URL=postgresql://postgres@localhost:5432/mydb
 ```
 
 **MySQL:**
 ```
+# With authentication
 DB_URL=mysql://dbuser:$uper$ecret@tcp(localhost:3306)/mydb
+
+# Without authentication (--no-auth)
+DB_URL=mysql://root@tcp(localhost:3306)/mydb
 ```
 
 **Redis:**
 ```
-DB_URL=redis://:$uper$ecret@localhost:6379
+# With authentication
+DB_URL=redis://:$uper$ecret@localhost:6379/0
+
+# Without authentication (--no-auth)
+DB_URL=redis://localhost:6379/0
 ```
 
 ## Interactive Navigation

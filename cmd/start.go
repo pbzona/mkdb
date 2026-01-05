@@ -323,8 +323,8 @@ func runStart(cmd *cobra.Command, args []string) error {
 	// Display connection string
 	connStr := credentials.FormatConnectionString(
 		settings.DBType,
-		credentials.DefaultUsername,
-		credentials.DefaultPassword,
+		username,
+		password,
 		"localhost",
 		hostPort,
 		settings.Name,
