@@ -233,14 +233,32 @@ func runStart(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	ui.Info(fmt.Sprintf("Creating %s database '%s'...", settings.DBType, settings.Name))
-
-	// Determine credentials based on --no-auth flag
+	// Determine credentials based on --no-auth flag or prompt
 	username := credentials.DefaultUsername
 	password := credentials.DefaultPassword
-	if noAuth {
+
+	// Check if --no-auth flag was explicitly set
+	noAuthFlagSet := cmd.Flags().Changed("no-auth")
+
+	if noAuthFlagSet && noAuth {
+		// Flag explicitly set to true
 		username = ""
 		password = ""
+	} else if !noAuthFlagSet {
+		// Flag not set, prompt user
+		useAuth, err := ui.PromptConfirm("Enable authentication? (recommended)")
+		if err != nil {
+			return fmt.Errorf("failed to get authentication preference: %w", err)
+		}
+		if !useAuth {
+			username = ""
+			password = ""
+		}
+	}
+
+	ui.Info(fmt.Sprintf("Creating %s database '%s'...", settings.DBType, settings.Name))
+
+	if username == "" && password == "" {
 		ui.Info("Creating database without authentication")
 	}
 

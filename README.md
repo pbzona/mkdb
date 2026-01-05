@@ -111,6 +111,7 @@ Create a new database container.
 
 **Smart Prompting:**
 - Only prompts for values not provided via flags
+- Prompts for authentication preference if `--no-auth` flag not specified
 - Remembers last used settings
 - Use `--repeat` flag to quickly create another database with same settings
 
@@ -158,8 +159,9 @@ mkdb start --db postgres --name publicdb --no-auth
 
 **Unauthenticated Access:**
 
-Use the `--no-auth` flag to create a database without authentication. This is useful for local development or testing scenarios where security is not a concern.
+You can create databases without authentication in two ways:
 
+1. **Using the `--no-auth` flag:**
 ```bash
 # PostgreSQL without authentication (uses trust mode)
 mkdb start --db postgres --name devdb --no-auth
@@ -171,7 +173,9 @@ mkdb start --db mysql --name devdb --no-auth
 mkdb start --db redis --name cache --no-auth
 ```
 
-**Note:** Unauthenticated databases cannot use password rotation (`mkdb creds rotate`). Connection strings for unauthenticated databases will not include credentials.
+2. **Interactive prompt:** When you don't specify the `--no-auth` flag, mkdb will ask "Enable authentication? (recommended)" - answer `n` or `N` to create without authentication.
+
+**Note:** Unauthenticated databases cannot use password rotation (`mkdb creds rotate`). Connection strings for unauthenticated databases will not include credentials. This is useful for local development or testing scenarios where security is not a concern.
 
 ### `mkdb list` / `mkdb ls`
 
