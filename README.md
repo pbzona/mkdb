@@ -155,7 +155,7 @@ mkdb start --db postgres --name publicdb --no-auth
 
 **Default Credentials:**
 - Username: `dbuser`
-- Password: `$uper$ecret`
+- Password: Randomly generated 12-character alphanumeric string (displayed after creation)
 
 **Unauthenticated Access:**
 
@@ -331,7 +331,7 @@ DB_URL=$(mkdb creds get --name mydb)
 
 **Output format:**
 ```
-DB_URL=postgresql://dbuser:$uper$ecret@localhost:5432/mydb
+DB_URL=postgresql://dbuser:Xy9k2mN8pL4v@localhost:5432/mydb
 ```
 
 ### `mkdb creds copy`
@@ -566,8 +566,8 @@ Connection strings are provided in the format:
 
 **PostgreSQL:**
 ```
-# With authentication
-DB_URL=postgresql://dbuser:$uper$ecret@localhost:5432/mydb
+# With authentication (random password generated)
+DB_URL=postgresql://dbuser:<random-password>@localhost:5432/mydb
 
 # Without authentication (--no-auth)
 DB_URL=postgresql://postgres@localhost:5432/mydb
@@ -575,8 +575,8 @@ DB_URL=postgresql://postgres@localhost:5432/mydb
 
 **MySQL:**
 ```
-# With authentication
-DB_URL=mysql://dbuser:$uper$ecret@tcp(localhost:3306)/mydb
+# With authentication (random password generated)
+DB_URL=mysql://dbuser:<random-password>@tcp(localhost:3306)/mydb
 
 # Without authentication (--no-auth)
 DB_URL=mysql://root@tcp(localhost:3306)/mydb
@@ -584,8 +584,8 @@ DB_URL=mysql://root@tcp(localhost:3306)/mydb
 
 **Redis:**
 ```
-# With authentication
-DB_URL=redis://:$uper$ecret@localhost:6379/0
+# With authentication (random password generated)
+DB_URL=redis://:<random-password>@localhost:6379/0
 
 # Without authentication (--no-auth)
 DB_URL=redis://localhost:6379/0
@@ -659,7 +659,7 @@ $ mkdb start --db postgres --name devdb
 ✓ Database 'devdb' created successfully!
 
 ╭──────────────────────────────────────────────────────────╮
-│ DB_URL=postgresql://dbuser:$uper$ecret@localhost:5432/devdb │
+│ DB_URL=postgresql://dbuser:Xy9k2mN8pL4v@localhost:5432/devdb │
 ╰──────────────────────────────────────────────────────────╯
 
 ℹ Database will expire in 2 hours (at 2025-12-23 17:00:00)
@@ -674,7 +674,7 @@ $ mkdb start --db postgres --name devdb --ttl 48
 ✓ Database 'devdb' created successfully!
 
 ╭──────────────────────────────────────────────────────────╮
-│ DB_URL=postgresql://dbuser:$uper$ecret@localhost:5432/devdb │
+│ DB_URL=postgresql://dbuser:Bw7n5pK2mL9t@localhost:5432/devdb │
 ╰──────────────────────────────────────────────────────────╯
 
 ℹ Database will expire in 48 hours (at 2025-12-25 17:00:00)
@@ -697,12 +697,13 @@ $ mkdb start --repeat
 $ mkdb start
 ? Select database type: postgres
 ? Enter database name: devdb
+? Enable authentication? (recommended) Yes
 ? Do you want to create a volume for this database? named
 
 ✓ Database 'devdb' created successfully!
 
 ╭──────────────────────────────────────────────────────────╮
-│ DB_URL=postgresql://dbuser:$uper$ecret@localhost:5432/devdb │
+│ DB_URL=postgresql://dbuser:M3kP9xL2vN7w@localhost:5432/devdb │
 ╰──────────────────────────────────────────────────────────╯
 
 ℹ Database will expire in 2 hours (at 2025-12-23 17:00:00)

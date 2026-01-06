@@ -234,14 +234,13 @@ func runStart(cmd *cobra.Command, args []string) error {
 	}
 
 	// Determine credentials based on --no-auth flag or prompt
-	username := credentials.DefaultUsername
-	password := credentials.DefaultPassword
+	var username, password string
 
 	// Check if --no-auth flag was explicitly set
 	noAuthFlagSet := cmd.Flags().Changed("no-auth")
 
 	if noAuthFlagSet && noAuth {
-		// Flag explicitly set to true
+		// Flag explicitly set to true - no authentication
 		username = ""
 		password = ""
 	} else if !noAuthFlagSet {
@@ -250,9 +249,23 @@ func runStart(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			return fmt.Errorf("failed to get authentication preference: %w", err)
 		}
-		if !useAuth {
+		if useAuth {
+			// Generate random password
+			username = credentials.DefaultUsername
+			password, err = credentials.GeneratePassword(12)
+			if err != nil {
+				return fmt.Errorf("failed to generate password: %w", err)
+			}
+		} else {
 			username = ""
 			password = ""
+		}
+	} else {
+		// Flag explicitly set to false - use authentication with random password
+		username = credentials.DefaultUsername
+		password, err = credentials.GeneratePassword(12)
+		if err != nil {
+			return fmt.Errorf("failed to generate password: %w", err)
 		}
 	}
 
