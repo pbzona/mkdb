@@ -35,41 +35,162 @@ func Run() error {
 	return RunInteractive(containers)
 }
 
-// RunInteractive prompts the user to select and clean up containers
+// RunInteractive prompts the user to select containers to extend or remove
 func RunInteractive(containers []*database.Container) error {
-	// Prompt user to select which containers to remove
-	selected, err := promptForCleanup(containers)
+	// First, prompt user to select containers to extend
+	toExtend, extendHours, err := promptForExtend(containers)
 	if err != nil {
-		return fmt.Errorf("failed to prompt for cleanup: %w", err)
+		return fmt.Errorf("failed to prompt for extend: %w", err)
 	}
 
-	if len(selected) == 0 {
-		config.Logger.Info("No containers selected for cleanup")
-		fmt.Println("\n✓ No containers were removed")
-		return nil
+	// Extend selected containers
+	extendedCount := 0
+	if len(toExtend) > 0 {
+		for _, c := range toExtend {
+			if err := extendContainer(c, extendHours); err != nil {
+				config.Logger.Error("Failed to extend container", "name", c.DisplayName, "error", err)
+				fmt.Printf("✗ Failed to extend %s: %v\n", c.DisplayName, err)
+				continue
+			}
+			fmt.Printf("✓ Extended %s (%s) by %d hours\n", c.DisplayName, c.Type, extendHours)
+			extendedCount++
+		}
+	}
+
+	// Build list of containers not extended for removal prompt
+	remainingContainers := make([]*database.Container, 0)
+	for _, c := range containers {
+		extended := false
+		for _, e := range toExtend {
+			if c.ID == e.ID {
+				extended = true
+				break
+			}
+		}
+		if !extended {
+			remainingContainers = append(remainingContainers, c)
+		}
+	}
+
+	// Prompt user to select which containers to remove
+	toRemove := []*database.Container{}
+	if len(remainingContainers) > 0 {
+		toRemove, err = promptForRemoval(remainingContainers)
+		if err != nil {
+			return fmt.Errorf("failed to prompt for removal: %w", err)
+		}
 	}
 
 	// Clean up selected containers
-	successCount := 0
-	for _, c := range selected {
+	removedCount := 0
+	for _, c := range toRemove {
 		if err := cleanupContainer(c); err != nil {
 			config.Logger.Error("Failed to cleanup container", "name", c.DisplayName, "error", err)
 			fmt.Printf("✗ Failed to remove %s: %v\n", c.DisplayName, err)
 			continue
 		}
 		fmt.Printf("✓ Removed %s (%s)\n", c.DisplayName, c.Type)
-		successCount++
+		removedCount++
 	}
 
-	if successCount > 0 {
-		fmt.Printf("\n✓ Successfully removed %d container(s)\n", successCount)
+	// Print summary
+	if extendedCount > 0 || removedCount > 0 {
+		fmt.Println()
+		if extendedCount > 0 {
+			fmt.Printf("✓ Extended %d container(s)\n", extendedCount)
+		}
+		if removedCount > 0 {
+			fmt.Printf("✓ Removed %d container(s)\n", removedCount)
+		}
+	} else {
+		fmt.Println("\n✓ No changes made")
 	}
 
 	return nil
 }
 
-// promptForCleanup shows an interactive prompt to select expired containers to remove
-func promptForCleanup(containers []*database.Container) ([]*database.Container, error) {
+// promptForExtend shows an interactive prompt to select expired containers to extend
+func promptForExtend(containers []*database.Container) ([]*database.Container, int, error) {
+	// Build options for multiselect
+	options := make([]huh.Option[*database.Container], len(containers))
+	for i, c := range containers {
+		// Calculate time since expiration
+		expired := time.Since(c.ExpiresAt)
+		expiredStr := formatExpiredDuration(expired)
+
+		label := fmt.Sprintf("%s (%s) - expired %s ago", c.DisplayName, c.Type, expiredStr)
+		options[i] = huh.NewOption(label, c)
+	}
+
+	var selected []*database.Container
+	var extendHoursStr string = "24" // Default to 24 hours
+
+	// Customize key bindings to use 'a' instead of 'ctrl+a' for select all
+	keyMap := huh.NewDefaultKeyMap()
+	keyMap.MultiSelect.SelectAll = key.NewBinding(
+		key.WithKeys("a"),
+		key.WithHelp("a", "select all"),
+	)
+	keyMap.MultiSelect.SelectNone = key.NewBinding(
+		key.WithKeys("A"),
+		key.WithHelp("A", "select none"),
+	)
+
+	form := huh.NewForm(
+		huh.NewGroup(
+			huh.NewMultiSelect[*database.Container]().
+				Title("⏰ Extend Expired Databases").
+				Description("Select databases to extend (Space to select, a=all, A=none, Enter to continue)").
+				Options(options...).
+				Value(&selected).
+				WithKeyMap(keyMap),
+		),
+	)
+
+	err := form.Run()
+	if err != nil {
+		return nil, 0, err
+	}
+
+	// If containers were selected, ask for hours
+	extendHours := 24
+	if len(selected) > 0 {
+		hoursForm := huh.NewForm(
+			huh.NewGroup(
+				huh.NewInput().
+					Title("Extend by how many hours?").
+					Value(&extendHoursStr).
+					Validate(func(s string) error {
+						if s == "" {
+							return fmt.Errorf("hours cannot be empty")
+						}
+						// Try to parse as int
+						_, err := fmt.Sscanf(s, "%d", &extendHours)
+						if err != nil {
+							return fmt.Errorf("hours must be a valid number")
+						}
+						if extendHours <= 0 {
+							return fmt.Errorf("hours must be greater than 0")
+						}
+						return nil
+					}),
+			),
+		)
+
+		err = hoursForm.Run()
+		if err != nil {
+			return nil, 0, err
+		}
+
+		// Parse the hours string to int
+		fmt.Sscanf(extendHoursStr, "%d", &extendHours)
+	}
+
+	return selected, extendHours, nil
+}
+
+// promptForRemoval shows an interactive prompt to select expired containers to remove
+func promptForRemoval(containers []*database.Container) ([]*database.Container, error) {
 	// Build options for multiselect
 	options := make([]huh.Option[*database.Container], len(containers))
 	for i, c := range containers {
@@ -97,7 +218,7 @@ func promptForCleanup(containers []*database.Container) ([]*database.Container, 
 	form := huh.NewForm(
 		huh.NewGroup(
 			huh.NewMultiSelect[*database.Container]().
-				Title("🗑️  Expired Databases").
+				Title("🗑️  Remove Expired Databases").
 				Description("Select databases to remove (Space to select, a=all, A=none, Enter to confirm)").
 				Options(options...).
 				Value(&selected).
@@ -126,6 +247,39 @@ func formatExpiredDuration(d time.Duration) string {
 		return "1 day"
 	}
 	return fmt.Sprintf("%d days", days)
+}
+
+// extendContainer extends the TTL of a container, handling expired containers correctly
+func extendContainer(c *database.Container, hours int) error {
+	config.Logger.Info("Extending container TTL", "name", c.DisplayName, "hours", hours)
+
+	// If container is already expired, extend from now instead of from old expiration time
+	if time.Now().After(c.ExpiresAt) {
+		config.Logger.Info("Container is expired, extending from current time", "name", c.DisplayName)
+		c.ExpiresAt = time.Now().Add(time.Duration(hours) * time.Hour)
+	} else {
+		// Container is still valid, extend from current expiration
+		c.ExpiresAt = c.ExpiresAt.Add(time.Duration(hours) * time.Hour)
+	}
+
+	// Update container in database
+	if err := database.UpdateContainer(c); err != nil {
+		return fmt.Errorf("failed to update container: %w", err)
+	}
+
+	// Log event
+	event := &database.Event{
+		ContainerID: c.ID,
+		EventType:   "ttl_extended",
+		Timestamp:   time.Now(),
+		Details:     fmt.Sprintf("TTL extended by %d hours", hours),
+	}
+	if err := database.CreateEvent(event); err != nil {
+		config.Logger.Warn("Failed to log event", "error", err)
+	}
+
+	config.Logger.Info("Container TTL extended", "name", c.DisplayName, "new_expiration", c.ExpiresAt)
+	return nil
 }
 
 func cleanupContainer(c *database.Container) error {

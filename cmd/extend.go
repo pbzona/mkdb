@@ -56,8 +56,14 @@ func runExtend(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Extend TTL
-	container.ExpiresAt = container.ExpiresAt.Add(time.Duration(extendHours) * time.Hour)
+	// Extend TTL - if container is already expired, extend from now instead of from old expiration time
+	if time.Now().After(container.ExpiresAt) {
+		ui.Info(fmt.Sprintf("Container is expired, extending from current time"))
+		container.ExpiresAt = time.Now().Add(time.Duration(extendHours) * time.Hour)
+	} else {
+		// Container is still valid, extend from current expiration
+		container.ExpiresAt = container.ExpiresAt.Add(time.Duration(extendHours) * time.Hour)
+	}
 
 	if err := database.UpdateContainer(container); err != nil {
 		return fmt.Errorf("failed to update container: %w", err)
