@@ -352,13 +352,19 @@ func runStart(cmd *cobra.Command, args []string) error {
 	ui.Success(fmt.Sprintf("Database '%s' created successfully!", settings.Name))
 
 	// Display connection string
+	// For Redis, use database number "0" instead of container name
+	dbIdentifier := settings.Name
+	if settings.DBType == "redis" {
+		dbIdentifier = "0"
+	}
+
 	connStr := credentials.FormatConnectionString(
 		settings.DBType,
 		username,
 		password,
 		"localhost",
 		hostPort,
-		settings.Name,
+		dbIdentifier,
 	)
 
 	fmt.Println()

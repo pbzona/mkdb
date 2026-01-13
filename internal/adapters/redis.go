@@ -22,7 +22,7 @@ func (r *RedisAdapter) GetAliases() []string {
 
 func (r *RedisAdapter) GetImage(version string) string {
 	if version == "" {
-		version = "latest"
+		version = "8"
 	}
 	return fmt.Sprintf("redis:%s", version)
 }
