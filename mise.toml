@@ -12,16 +12,16 @@ run = "go test ./... -cover -coverprofile=coverage.out && go tool cover -html=co
 
 [tasks.build]
 description = "Build the binary"
-run = "go build -ldflags=\"-s -w\" -o mkdb ."
+run = "go build -ldflags=\"-s -w -X github.com/pbzona/mkdb/cmd.Version=$(git describe --tags --always --dirty 2>/dev/null || echo dev)\" -o mkdb ."
 depends = ["test"]
 
 [tasks.dev]
 description = "Build and install to $GOPATH/bin for local testing"
-run = "go install -ldflags=\"-s -w\" ."
+run = "go install -ldflags=\"-s -w -X github.com/pbzona/mkdb/cmd.Version=$(git describe --tags --always --dirty 2>/dev/null || echo dev)\" ."
 
 [tasks.install]
 description = "Build and install to ~/.local/bin"
-run = "go build -ldflags=\"-s -w\" -o mkdb . && mkdir -p ~/.local/bin && mv mkdb ~/.local/bin/"
+run = "go build -ldflags=\"-s -w -X github.com/pbzona/mkdb/cmd.Version=$(git describe --tags --always --dirty 2>/dev/null || echo dev)\" -o mkdb . && mkdir -p ~/.local/bin && mv mkdb ~/.local/bin/"
 depends = ["test"]
 
 [tasks.clean]
@@ -42,8 +42,12 @@ run = "go run . $@"
 
 [tasks.quick]
 description = "Quick build without tests (for rapid iteration)"
-run = "go build -ldflags=\"-s -w\" -o mkdb ."
+run = "go build -ldflags=\"-s -w -X github.com/pbzona/mkdb/cmd.Version=$(git describe --tags --always --dirty 2>/dev/null || echo dev)\" -o mkdb ."
 
 [tasks.check]
 description = "Run all checks (test, lint, build)"
 run = "mise run test && mise run lint && mise run build"
+
+[tasks.version]
+description = "Show the version that would be embedded in builds"
+run = "git describe --tags --always --dirty 2>/dev/null || echo dev"
