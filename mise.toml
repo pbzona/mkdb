@@ -37,7 +37,7 @@ description = "Format all Go files"
 run = "gofmt -w ."
 
 [tasks.run]
-description = "Build and run mkdb with arguments (e.g., mise run -- start --db postgres)"
+description = "Build and run mkdb with arguments (e.g., mise run -- create postgres --name app)"
 run = "go run . $@"
 
 [tasks.quick]
