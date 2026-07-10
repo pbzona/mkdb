@@ -18,9 +18,6 @@ type DatabaseAdapter interface {
 	// Pass empty strings for username and password to run in unauthenticated mode
 	GetEnvVars(dbName, username, password string) []string
 
-	// SupportsUnauthenticated returns whether this database can run without authentication
-	SupportsUnauthenticated() bool
-
 	// GetDataPath returns the path inside the container where data is stored
 	GetDataPath() string
 
@@ -33,23 +30,22 @@ type DatabaseAdapter interface {
 	// GetDefaultConfig returns the default configuration file content
 	GetDefaultConfig() string
 
-	// CreateUserCommand returns the command to create a new user in the database
-	// Returns nil if user creation is not supported
-	CreateUserCommand(username, password, dbName string) []string
+	// CreateUserCommand returns the command to create a new user in the database.
+	// adminUser/adminPassword are the credentials of the container's default
+	// (privileged) user, used to authenticate the administrative command.
+	// Returns nil if user creation is not supported.
+	CreateUserCommand(adminUser, adminPassword, username, password, dbName string) []string
 
-	// DeleteUserCommand returns the command to delete a user from the database
-	// Returns nil if user deletion is not supported
-	DeleteUserCommand(username, dbName string) []string
+	// DeleteUserCommand returns the command to delete a user from the database.
+	// Returns nil if user deletion is not supported.
+	DeleteUserCommand(adminUser, adminPassword, username, dbName string) []string
 
-	// RotatePasswordCommand returns the command to rotate a user's password
-	// Returns nil if password rotation is not supported
-	RotatePasswordCommand(username, newPassword, dbName string) []string
+	// RotatePasswordCommand returns the command to rotate a user's password.
+	// Returns nil if password rotation is not supported.
+	RotatePasswordCommand(adminUser, adminPassword, username, newPassword, dbName string) []string
 
 	// FormatConnectionString returns the connection string for this database
 	FormatConnectionString(username, password, host, port, dbName string) string
-
-	// SupportsUsername returns whether this database supports username authentication
-	SupportsUsername() bool
 
 	// GetCommandArgs returns custom command line arguments for starting the container
 	// Returns empty slice if no custom command is needed

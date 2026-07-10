@@ -181,10 +181,6 @@ func TestDefaultConstants(t *testing.T) {
 		t.Errorf("DefaultUsername = %v, want dbuser", DefaultUsername)
 	}
 
-	if DefaultPassword != "$uper$ecret" {
-		t.Errorf("DefaultPassword = %v, want $uper$ecret", DefaultPassword)
-	}
-
 	// Verify charset contains expected characters
 	expectedChars := "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 	if charset != expectedChars {

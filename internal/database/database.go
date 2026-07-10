@@ -37,15 +37,6 @@ type User struct {
 	CreatedAt    time.Time
 }
 
-// Event represents a container event
-type Event struct {
-	ID          int
-	ContainerID int
-	EventType   string
-	Timestamp   time.Time
-	Details     string
-}
-
 // Initialize creates the database schema
 func Initialize() error {
 	var err error
@@ -82,18 +73,8 @@ func Initialize() error {
 		UNIQUE(container_id, username)
 	);
 
-	CREATE TABLE IF NOT EXISTS events (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		container_id INTEGER NOT NULL,
-		event_type TEXT NOT NULL,
-		timestamp DATETIME NOT NULL,
-		details TEXT,
-		FOREIGN KEY (container_id) REFERENCES containers(id) ON DELETE CASCADE
-	);
-
 	CREATE INDEX IF NOT EXISTS idx_containers_status ON containers(status);
 	CREATE INDEX IF NOT EXISTS idx_containers_expires_at ON containers(expires_at);
-	CREATE INDEX IF NOT EXISTS idx_events_container_id ON events(container_id);
 	`
 
 	if _, err := db.Exec(schema); err != nil {
@@ -156,42 +137,11 @@ func GetContainerByDisplayName(displayName string) (*Container, error) {
 	return c, nil
 }
 
-// GetContainerByID retrieves a container by ID
-func GetContainerByID(id int) (*Container, error) {
-	c := &Container{}
-	err := db.QueryRow(`
-		SELECT id, name, display_name, type, version, container_id, port, status, created_at, expires_at, volume_type, volume_path
-		FROM containers WHERE id = ?
-	`, id).Scan(&c.ID, &c.Name, &c.DisplayName, &c.Type, &c.Version, &c.ContainerID, &c.Port, &c.Status, &c.CreatedAt, &c.ExpiresAt, &c.VolumeType, &c.VolumePath)
-	if err != nil {
-		return nil, err
-	}
-	return c, nil
-}
-
-// ListContainers retrieves all containers (excluding cleaned up expired ones)
+// ListContainers retrieves all tracked containers, newest first.
 func ListContainers() ([]*Container, error) {
-	return listContainersWithStatus(false)
-}
-
-// ListAllContainers retrieves all containers including expired ones
-func ListAllContainers() ([]*Container, error) {
-	return listContainersWithStatus(true)
-}
-
-// listContainersWithStatus retrieves containers, optionally including expired
-func listContainersWithStatus(includeExpired bool) ([]*Container, error) {
-	query := `
+	rows, err := db.Query(`
 		SELECT id, name, display_name, type, version, container_id, port, status, created_at, expires_at, volume_type, volume_path
-		FROM containers`
-
-	if !includeExpired {
-		query += ` WHERE status != 'expired'`
-	}
-
-	query += ` ORDER BY created_at DESC`
-
-	rows, err := db.Query(query)
+		FROM containers ORDER BY created_at DESC`)
 	if err != nil {
 		return nil, err
 	}
@@ -225,11 +175,12 @@ func DeleteContainer(id int) error {
 	return err
 }
 
-// GetExpiredContainers retrieves containers that have expired
+// GetExpiredContainers retrieves containers whose TTL has elapsed. Both running
+// and stopped containers are included so their volumes are not leaked.
 func GetExpiredContainers() ([]*Container, error) {
 	rows, err := db.Query(`
 		SELECT id, name, display_name, type, version, container_id, port, status, created_at, expires_at, volume_type, volume_path
-		FROM containers WHERE expires_at < ? AND status != 'stopped' AND status != 'expired'
+		FROM containers WHERE expires_at < ?
 	`, time.Now())
 	if err != nil {
 		return nil, err
@@ -314,14 +265,5 @@ func UpdateUser(u *User) error {
 // DeleteUser deletes a user record
 func DeleteUser(id int) error {
 	_, err := db.Exec("DELETE FROM users WHERE id = ?", id)
-	return err
-}
-
-// CreateEvent creates a new event record
-func CreateEvent(e *Event) error {
-	_, err := db.Exec(`
-		INSERT INTO events (container_id, event_type, timestamp, details)
-		VALUES (?, ?, ?, ?)
-	`, e.ContainerID, e.EventType, e.Timestamp, e.Details)
 	return err
 }

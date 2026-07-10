@@ -36,12 +36,14 @@ func (m *MySQLAdapter) GetEnvVars(dbName, username, password string) []string {
 		fmt.Sprintf("MYSQL_DATABASE=%s", dbName),
 	}
 
-	// If username and password are empty, allow unauthenticated root login
+	// If username and password are empty, allow unauthenticated root login.
+	// Otherwise reuse the generated app password as the root password so there
+	// is no static/shared root credential across containers.
 	if username != "" && password != "" {
 		envVars = append(envVars,
 			fmt.Sprintf("MYSQL_USER=%s", username),
 			fmt.Sprintf("MYSQL_PASSWORD=%s", password),
-			"MYSQL_ROOT_PASSWORD=rootpassword",
+			fmt.Sprintf("MYSQL_ROOT_PASSWORD=%s", password),
 		)
 	} else {
 		// Allow empty root password for unauthenticated access
@@ -78,26 +80,34 @@ general_log_file = /var/log/mysql/general.log
 `
 }
 
-func (m *MySQLAdapter) CreateUserCommand(username, password, dbName string) []string {
-	return []string{
-		"mysql", "-u", "root", "-prootpassword", "-e",
+// adminArgs builds the "mysql -u root [-p<pw>]" prefix. The root password
+// equals the app password (see GetEnvVars); unauthenticated containers have an
+// empty root password and omit the flag entirely.
+func (m *MySQLAdapter) adminArgs(adminPassword string) []string {
+	args := []string{"mysql", "-u", "root"}
+	if adminPassword != "" {
+		args = append(args, "-p"+adminPassword)
+	}
+	return args
+}
+
+func (m *MySQLAdapter) CreateUserCommand(adminUser, adminPassword, username, password, dbName string) []string {
+	return append(m.adminArgs(adminPassword), "-e",
 		fmt.Sprintf("CREATE USER '%s'@'%%' IDENTIFIED BY '%s'; GRANT ALL PRIVILEGES ON %s.* TO '%s'@'%%'; FLUSH PRIVILEGES;",
 			username, password, dbName, username),
-	}
+	)
 }
 
-func (m *MySQLAdapter) DeleteUserCommand(username, dbName string) []string {
-	return []string{
-		"mysql", "-u", "root", "-prootpassword", "-e",
+func (m *MySQLAdapter) DeleteUserCommand(adminUser, adminPassword, username, dbName string) []string {
+	return append(m.adminArgs(adminPassword), "-e",
 		fmt.Sprintf("DROP USER IF EXISTS '%s'@'%%'; FLUSH PRIVILEGES;", username),
-	}
+	)
 }
 
-func (m *MySQLAdapter) RotatePasswordCommand(username, newPassword, dbName string) []string {
-	return []string{
-		"mysql", "-u", "root", "-prootpassword", "-e",
+func (m *MySQLAdapter) RotatePasswordCommand(adminUser, adminPassword, username, newPassword, dbName string) []string {
+	return append(m.adminArgs(adminPassword), "-e",
 		fmt.Sprintf("ALTER USER '%s'@'%%' IDENTIFIED BY '%s'; FLUSH PRIVILEGES;", username, newPassword),
-	}
+	)
 }
 
 func (m *MySQLAdapter) FormatConnectionString(username, password, host, port, dbName string) string {
@@ -106,14 +116,6 @@ func (m *MySQLAdapter) FormatConnectionString(username, password, host, port, db
 		return fmt.Sprintf("mysql://root@tcp(%s:%s)/%s", host, port, dbName)
 	}
 	return fmt.Sprintf("mysql://%s:%s@tcp(%s:%s)/%s", username, password, host, port, dbName)
-}
-
-func (m *MySQLAdapter) SupportsUsername() bool {
-	return true
-}
-
-func (m *MySQLAdapter) SupportsUnauthenticated() bool {
-	return true
 }
 
 func (m *MySQLAdapter) GetCommandArgs(password string) []string {

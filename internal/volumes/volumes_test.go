@@ -179,8 +179,9 @@ func TestGetDirSize(t *testing.T) {
 	}
 }
 
-func TestOrphanedVolumeWithOriginalContainer(t *testing.T) {
-	// Initialize config and database
+func TestScanOrphanedIgnoresExpiredTrackedContainer(t *testing.T) {
+	// A container record that still exists (even if expired by TTL) means its
+	// volume is tracked, not orphaned. Orphaned means no record at all.
 	if err := config.Initialize(); err != nil {
 		t.Fatalf("Failed to initialize config: %v", err)
 	}
@@ -189,8 +190,7 @@ func TestOrphanedVolumeWithOriginalContainer(t *testing.T) {
 	}
 	defer database.Close()
 
-	// Create a test volume
-	testVolumeName := "test-orphaned-with-metadata"
+	testVolumeName := "test-tracked-expired-volume"
 	testVolumePath := filepath.Join(config.VolumesDir, testVolumeName)
 	os.RemoveAll(testVolumePath)
 
@@ -199,16 +199,15 @@ func TestOrphanedVolumeWithOriginalContainer(t *testing.T) {
 	}
 	defer os.RemoveAll(testVolumePath)
 
-	// Create an expired container record (so it won't show as active)
 	container := &database.Container{
 		Name:        "mkdb-" + testVolumeName,
 		DisplayName: testVolumeName,
 		Type:        "redis",
 		Version:     "7.0",
-		Status:      "expired",
+		Status:      "stopped",
 		Port:        "6379",
 		CreatedAt:   time.Now().Add(-48 * time.Hour),
-		ExpiresAt:   time.Now().Add(-24 * time.Hour), // Expired
+		ExpiresAt:   time.Now().Add(-24 * time.Hour), // Expired by TTL
 		VolumeType:  "named",
 		VolumePath:  testVolumeName,
 	}
@@ -218,34 +217,14 @@ func TestOrphanedVolumeWithOriginalContainer(t *testing.T) {
 	}
 	defer database.DeleteContainer(container.ID)
 
-	// Scan for orphaned volumes
 	orphaned, err := ScanOrphaned()
 	if err != nil {
 		t.Fatalf("ScanOrphaned() error: %v", err)
 	}
 
-	// Find our test volume
-	var testVol *OrphanedVolume
 	for _, vol := range orphaned {
 		if vol.Name == testVolumeName {
-			testVol = vol
-			break
-		}
-	}
-
-	if testVol == nil {
-		t.Fatalf("Test volume %s not found", testVolumeName)
-	}
-
-	// Verify it has the original container metadata
-	if testVol.Container == nil {
-		t.Error("Expected Container metadata to be present")
-	} else {
-		if testVol.Container.Type != "redis" {
-			t.Errorf("Container.Type = %v, want redis", testVol.Container.Type)
-		}
-		if testVol.Container.Version != "7.0" {
-			t.Errorf("Container.Version = %v, want 7.0", testVol.Container.Version)
+			t.Errorf("Tracked volume %s should not be reported as orphaned", testVolumeName)
 		}
 	}
 }

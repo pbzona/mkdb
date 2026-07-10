@@ -105,13 +105,6 @@ func TestRedisAdapter_FormatConnectionString(t *testing.T) {
 	}
 }
 
-func TestRedisAdapter_SupportsUsername(t *testing.T) {
-	adapter := NewRedisAdapter()
-	if adapter.SupportsUsername() {
-		t.Error("Redis should not support username authentication")
-	}
-}
-
 func TestRedisAdapter_GetEnvVars(t *testing.T) {
 	adapter := NewRedisAdapter()
 

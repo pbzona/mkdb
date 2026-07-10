@@ -137,41 +137,6 @@ func TestCreateAndGetContainer(t *testing.T) {
 	}
 }
 
-func TestGetContainerByID(t *testing.T) {
-	setupTestDB(t)
-	defer cleanupTestDB(t)
-
-	container := &Container{
-		Name:        "mkdb-testdb",
-		DisplayName: "testdb",
-		Type:        "mysql",
-		Version:     "8",
-		ContainerID: "xyz789",
-		Port:        "3306",
-		Status:      "running",
-		CreatedAt:   time.Now(),
-		ExpiresAt:   time.Now().Add(24 * time.Hour),
-	}
-
-	err := CreateContainer(container)
-	if err != nil {
-		t.Fatalf("CreateContainer() error = %v", err)
-	}
-
-	retrieved, err := GetContainerByID(container.ID)
-	if err != nil {
-		t.Fatalf("GetContainerByID() error = %v", err)
-	}
-
-	if retrieved.ID != container.ID {
-		t.Errorf("GetContainerByID() ID = %v, want %v", retrieved.ID, container.ID)
-	}
-
-	if retrieved.Name != container.Name {
-		t.Errorf("GetContainerByID() Name = %v, want %v", retrieved.Name, container.Name)
-	}
-}
-
 func TestListContainers(t *testing.T) {
 	setupTestDB(t)
 	defer cleanupTestDB(t)
@@ -309,6 +274,19 @@ func TestGetExpiredContainers(t *testing.T) {
 		ExpiresAt:   now.Add(-1 * time.Hour), // Expired 1 hour ago
 	}
 
+	// Create an expired but stopped container. It must still be reported so its
+	// volume is not leaked.
+	expiredStopped := &Container{
+		Name:        "mkdb-expired-stopped",
+		DisplayName: "expired-stopped",
+		Type:        "redis",
+		Version:     "8",
+		Port:        "6379",
+		Status:      "stopped",
+		CreatedAt:   now.Add(-25 * time.Hour),
+		ExpiresAt:   now.Add(-1 * time.Hour),
+	}
+
 	// Create active container
 	activeContainer := &Container{
 		Name:        "mkdb-active",
@@ -325,6 +303,10 @@ func TestGetExpiredContainers(t *testing.T) {
 		t.Fatalf("CreateContainer() error = %v", err)
 	}
 
+	if err := CreateContainer(expiredStopped); err != nil {
+		t.Fatalf("CreateContainer() error = %v", err)
+	}
+
 	if err := CreateContainer(activeContainer); err != nil {
 		t.Fatalf("CreateContainer() error = %v", err)
 	}
@@ -335,12 +317,14 @@ func TestGetExpiredContainers(t *testing.T) {
 		t.Fatalf("GetExpiredContainers() error = %v", err)
 	}
 
-	if len(expired) != 1 {
-		t.Errorf("GetExpiredContainers() returned %d containers, want 1", len(expired))
+	if len(expired) != 2 {
+		t.Errorf("GetExpiredContainers() returned %d containers, want 2", len(expired))
 	}
 
-	if len(expired) > 0 && expired[0].Name != "mkdb-expired" {
-		t.Errorf("GetExpiredContainers() returned wrong container: %s", expired[0].Name)
+	for _, c := range expired {
+		if c.Name == "mkdb-active" {
+			t.Errorf("GetExpiredContainers() returned non-expired container: %s", c.Name)
+		}
 	}
 }
 
@@ -554,40 +538,5 @@ func TestDeleteUser(t *testing.T) {
 
 	if len(users) != 0 {
 		t.Errorf("ListUsers() returned %d users after deletion, want 0", len(users))
-	}
-}
-
-func TestCreateEvent(t *testing.T) {
-	setupTestDB(t)
-	defer cleanupTestDB(t)
-
-	// Create container first
-	container := &Container{
-		Name:        "mkdb-testdb",
-		DisplayName: "testdb",
-		Type:        "postgres",
-		Version:     "15",
-		Port:        "5432",
-		Status:      "running",
-		CreatedAt:   time.Now(),
-		ExpiresAt:   time.Now().Add(24 * time.Hour),
-	}
-
-	err := CreateContainer(container)
-	if err != nil {
-		t.Fatalf("CreateContainer() error = %v", err)
-	}
-
-	// Create event
-	event := &Event{
-		ContainerID: container.ID,
-		EventType:   "created",
-		Timestamp:   time.Now(),
-		Details:     "Test event",
-	}
-
-	err = CreateEvent(event)
-	if err != nil {
-		t.Fatalf("CreateEvent() error = %v", err)
 	}
 }

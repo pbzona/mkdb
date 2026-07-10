@@ -10,7 +10,6 @@ import (
 
 const (
 	DefaultUsername = "dbuser"
-	DefaultPassword = "$uper$ecret"
 	charset         = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 )
 

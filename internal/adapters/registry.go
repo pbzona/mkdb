@@ -117,15 +117,3 @@ func (r *Registry) NormalizeType(dbType string) (string, error) {
 	}
 	return adapter.GetName(), nil
 }
-
-// GetAllAliases returns a map of all aliases to their canonical names
-func (r *Registry) GetAllAliases() map[string]string {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-
-	result := make(map[string]string, len(r.aliasToName))
-	for alias, name := range r.aliasToName {
-		result[alias] = name
-	}
-	return result
-}

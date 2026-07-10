@@ -80,24 +80,35 @@ log_statement = 'all'
 `
 }
 
-func (p *PostgresAdapter) CreateUserCommand(username, password, dbName string) []string {
+// adminRole returns the privileged role to run psql as. The default user is a
+// superuser when auth is enabled; unauthenticated databases fall back to the
+// built-in "postgres" superuser. Local socket connections use trust auth, so
+// no password is required.
+func (p *PostgresAdapter) adminRole(adminUser string) string {
+	if adminUser == "" {
+		return "postgres"
+	}
+	return adminUser
+}
+
+func (p *PostgresAdapter) CreateUserCommand(adminUser, adminPassword, username, password, dbName string) []string {
 	return []string{
-		"psql", "-U", "dbuser", "-d", dbName, "-c",
+		"psql", "-U", p.adminRole(adminUser), "-d", dbName, "-c",
 		fmt.Sprintf("CREATE USER %s WITH PASSWORD '%s'; GRANT ALL PRIVILEGES ON DATABASE %s TO %s;",
 			username, password, dbName, username),
 	}
 }
 
-func (p *PostgresAdapter) DeleteUserCommand(username, dbName string) []string {
+func (p *PostgresAdapter) DeleteUserCommand(adminUser, adminPassword, username, dbName string) []string {
 	return []string{
-		"psql", "-U", "dbuser", "-d", dbName, "-c",
+		"psql", "-U", p.adminRole(adminUser), "-d", dbName, "-c",
 		fmt.Sprintf("DROP USER IF EXISTS %s;", username),
 	}
 }
 
-func (p *PostgresAdapter) RotatePasswordCommand(username, newPassword, dbName string) []string {
+func (p *PostgresAdapter) RotatePasswordCommand(adminUser, adminPassword, username, newPassword, dbName string) []string {
 	return []string{
-		"psql", "-U", "dbuser", "-d", dbName, "-c",
+		"psql", "-U", p.adminRole(adminUser), "-d", dbName, "-c",
 		fmt.Sprintf("ALTER USER %s WITH PASSWORD '%s';", username, newPassword),
 	}
 }
@@ -108,14 +119,6 @@ func (p *PostgresAdapter) FormatConnectionString(username, password, host, port,
 		return fmt.Sprintf("postgresql://postgres@%s:%s/%s", host, port, dbName)
 	}
 	return fmt.Sprintf("postgresql://%s:%s@%s:%s/%s", username, password, host, port, dbName)
-}
-
-func (p *PostgresAdapter) SupportsUsername() bool {
-	return true
-}
-
-func (p *PostgresAdapter) SupportsUnauthenticated() bool {
-	return true
 }
 
 func (p *PostgresAdapter) GetCommandArgs(password string) []string {

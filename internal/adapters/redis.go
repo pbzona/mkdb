@@ -66,17 +66,17 @@ loglevel notice
 `
 }
 
-func (r *RedisAdapter) CreateUserCommand(username, password, dbName string) []string {
+func (r *RedisAdapter) CreateUserCommand(adminUser, adminPassword, username, password, dbName string) []string {
 	// Redis user management is more complex, not supported in basic adapter
 	return nil
 }
 
-func (r *RedisAdapter) DeleteUserCommand(username, dbName string) []string {
+func (r *RedisAdapter) DeleteUserCommand(adminUser, adminPassword, username, dbName string) []string {
 	// Redis user management is more complex, not supported in basic adapter
 	return nil
 }
 
-func (r *RedisAdapter) RotatePasswordCommand(username, newPassword, dbName string) []string {
+func (r *RedisAdapter) RotatePasswordCommand(adminUser, adminPassword, username, newPassword, dbName string) []string {
 	// Redis user management is more complex, not supported in basic adapter
 	return nil
 }
@@ -94,14 +94,6 @@ func (r *RedisAdapter) FormatConnectionString(username, password, host, port, db
 		return fmt.Sprintf("redis://:%s@%s:%s/%s", password, host, port, db)
 	}
 	return fmt.Sprintf("redis://%s:%s/0", host, port)
-}
-
-func (r *RedisAdapter) SupportsUsername() bool {
-	return false
-}
-
-func (r *RedisAdapter) SupportsUnauthenticated() bool {
-	return true
 }
 
 // GetCommandArgs returns the command line arguments to start Redis with password

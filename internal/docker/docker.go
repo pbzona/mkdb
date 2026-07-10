@@ -1,9 +1,11 @@
 package docker
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -11,14 +13,14 @@ import (
 	"time"
 
 	"github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/api/types/mount"
-	"github.com/docker/docker/api/types/volume"
 	"github.com/docker/docker/client"
+	"github.com/docker/docker/pkg/stdcopy"
 	"github.com/docker/go-connections/nat"
 	"github.com/pbzona/mkdb/internal/adapters"
 	"github.com/pbzona/mkdb/internal/config"
+	"github.com/pbzona/mkdb/internal/types"
 )
 
 const (
@@ -37,20 +39,15 @@ type DBConfig struct {
 	EnvVars     map[string]string
 }
 
-// Initialize creates a Docker client
+// Initialize creates a Docker client. It does not contact the daemon, so
+// commands that only read local state (version, ls, info) work while Docker is
+// down; commands that need the daemon surface a clear error on first use.
 func Initialize() error {
 	var err error
 	cli, err = client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
 		return fmt.Errorf("failed to create Docker client: %w", err)
 	}
-
-	// Test connection
-	ctx := context.Background()
-	if _, err := cli.Ping(ctx); err != nil {
-		return fmt.Errorf("failed to connect to Docker daemon: %w", err)
-	}
-
 	return nil
 }
 
@@ -62,53 +59,47 @@ func Close() error {
 	return nil
 }
 
-// GetDBConfig returns the configuration for a database type
-func GetDBConfig(dbType, version string) *DBConfig {
+// GetDBConfig returns the configuration for a database type, or an error if the
+// type is unknown.
+func GetDBConfig(dbType, version string) (*DBConfig, error) {
 	registry := adapters.GetRegistry()
 	adapter, err := registry.Get(dbType)
 	if err != nil {
-		// Return nil if adapter not found
-		return nil
+		return nil, err
 	}
 
 	return &DBConfig{
 		Image:       adapter.GetImage(version),
 		DefaultPort: adapter.GetDefaultPort(),
-	}
+	}, nil
 }
 
-// IsPortAvailable checks if a port is available on the host
+// IsPortAvailable reports whether a TCP port can be bound on the host. This
+// catches both Docker-published ports and any other local process.
 func IsPortAvailable(port string) (bool, error) {
-	ctx := context.Background()
+	if _, err := strconv.Atoi(strings.TrimSpace(port)); err != nil {
+		return false, fmt.Errorf("invalid port %q", port)
+	}
 
-	// List all containers
-	containers, err := cli.ContainerList(ctx, container.ListOptions{All: true})
+	ln, err := net.Listen("tcp", net.JoinHostPort("", port))
 	if err != nil {
-		return false, err
+		// Port is in use or otherwise not bindable.
+		return false, nil
 	}
-
-	portNum := uint16(mustAtoi(port))
-
-	// Check if any container is using this port
-	for _, c := range containers {
-		for _, p := range c.Ports {
-			if p.PublicPort == portNum {
-				return false, nil
-			}
-		}
-	}
-
+	_ = ln.Close()
 	return true, nil
 }
 
-// FindAvailablePort finds the next available port starting from the default port
-// Returns the available port as a string
+// FindAvailablePort finds the next available port starting from startPort.
 func FindAvailablePort(startPort string) (string, error) {
-	basePort := mustAtoi(startPort)
-	maxAttempts := 100 // Check up to 100 ports
+	basePort, err := strconv.Atoi(strings.TrimSpace(startPort))
+	if err != nil {
+		return "", fmt.Errorf("invalid port %q", startPort)
+	}
 
+	const maxAttempts = 100
 	for i := 0; i < maxAttempts; i++ {
-		port := fmt.Sprintf("%d", basePort+i)
+		port := strconv.Itoa(basePort + i)
 		available, err := IsPortAvailable(port)
 		if err != nil {
 			return "", err
@@ -125,7 +116,10 @@ func FindAvailablePort(startPort string) (string, error) {
 func CreateContainer(dbType, displayName, username, password, port, volumeType, volumePath, version string) (string, error) {
 	ctx := context.Background()
 
-	dbConfig := GetDBConfig(dbType, version)
+	dbConfig, err := GetDBConfig(dbType, version)
+	if err != nil {
+		return "", err
+	}
 	containerName := containerPrefix + displayName
 
 	// Pull image if not exists
@@ -310,7 +304,7 @@ func RestartContainer(containerID string) error {
 	return nil
 }
 
-// StartContainer starts an existing container
+// StartContainer starts an existing (stopped) container
 func StartContainer(containerID string) error {
 	ctx := context.Background()
 
@@ -322,18 +316,6 @@ func StartContainer(containerID string) error {
 	return nil
 }
 
-// GetContainerStatus returns the status of a container
-func GetContainerStatus(containerID string) (string, error) {
-	ctx := context.Background()
-
-	info, err := cli.ContainerInspect(ctx, containerID)
-	if err != nil {
-		return "", err
-	}
-
-	return info.State.Status, nil
-}
-
 // ContainerExists checks if a container exists
 func ContainerExists(containerID string) bool {
 	ctx := context.Background()
@@ -342,31 +324,25 @@ func ContainerExists(containerID string) bool {
 	return err == nil
 }
 
-// RemoveVolume removes a volume
-func RemoveVolume(volumePath string) error {
-	ctx := context.Background()
-
-	// For bind mounts, we don't remove through Docker
-	// For named volumes, remove the directory
-	filter := filters.NewArgs()
-	filter.Add("name", volumePath)
-
-	volumes, err := cli.VolumeList(ctx, volume.ListOptions{Filters: filter})
-	if err != nil {
-		return err
+// RemoveVolume removes the on-disk data for a container's volume. mkdb "named"
+// volumes are bind-mounted directories under the data dir; bind mounts point at
+// a user-supplied path and are left untouched.
+func RemoveVolume(volumeType, volumePath string) error {
+	if volumeType != types.VolumeTypeNamed || volumePath == "" {
+		return nil
 	}
 
-	for _, vol := range volumes.Volumes {
-		if err := cli.VolumeRemove(ctx, vol.Name, true); err != nil {
-			return err
-		}
+	dir := filepath.Join(config.VolumesDir, volumePath)
+	if err := os.RemoveAll(dir); err != nil {
+		return fmt.Errorf("failed to remove volume directory %s: %w", dir, err)
 	}
-
+	config.Logger.Info("Volume directory removed", "path", dir)
 	return nil
 }
 
-// ExecInContainer executes a command in a running container
-func ExecInContainer(containerID string, cmd []string) error {
+// ExecCommand runs a command in a container and returns its combined,
+// demultiplexed stdout/stderr output.
+func ExecCommand(containerID string, cmd []string) (string, error) {
 	ctx := context.Background()
 
 	execConfig := container.ExecOptions{
@@ -377,91 +353,6 @@ func ExecInContainer(containerID string, cmd []string) error {
 
 	execID, err := cli.ContainerExecCreate(ctx, containerID, execConfig)
 	if err != nil {
-		return fmt.Errorf("failed to create exec: %w", err)
-	}
-
-	if err := cli.ContainerExecStart(ctx, execID.ID, container.ExecStartOptions{}); err != nil {
-		return fmt.Errorf("failed to start exec: %w", err)
-	}
-
-	// Wait for the exec to complete
-	for {
-		inspect, err := cli.ContainerExecInspect(ctx, execID.ID)
-		if err != nil {
-			return err
-		}
-		if !inspect.Running {
-			if inspect.ExitCode != 0 {
-				return fmt.Errorf("command exited with code %d", inspect.ExitCode)
-			}
-			break
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
-
-	return nil
-}
-
-// CreateUser creates a new user in the database
-func CreateUser(containerID, dbType, username, password, dbName string) error {
-	registry := adapters.GetRegistry()
-	adapter, err := registry.Get(dbType)
-	if err != nil {
-		return fmt.Errorf("failed to get adapter: %w", err)
-	}
-
-	cmd := adapter.CreateUserCommand(username, password, dbName)
-	if cmd == nil {
-		return fmt.Errorf("user creation not supported for %s", dbType)
-	}
-
-	return ExecInContainer(containerID, cmd)
-}
-
-// DeleteUser deletes a user from the database
-func DeleteUser(containerID, dbType, username, dbName string) error {
-	registry := adapters.GetRegistry()
-	adapter, err := registry.Get(dbType)
-	if err != nil {
-		return fmt.Errorf("failed to get adapter: %w", err)
-	}
-
-	cmd := adapter.DeleteUserCommand(username, dbName)
-	if cmd == nil {
-		return fmt.Errorf("user deletion not supported for %s", dbType)
-	}
-
-	return ExecInContainer(containerID, cmd)
-}
-
-// RotatePassword rotates a user's password
-func RotatePassword(containerID, dbType, username, newPassword, dbName string) error {
-	registry := adapters.GetRegistry()
-	adapter, err := registry.Get(dbType)
-	if err != nil {
-		return fmt.Errorf("failed to get adapter: %w", err)
-	}
-
-	cmd := adapter.RotatePasswordCommand(username, newPassword, dbName)
-	if cmd == nil {
-		return fmt.Errorf("password rotation not supported for %s", dbType)
-	}
-
-	return ExecInContainer(containerID, cmd)
-}
-
-// ExecCommand executes a command in a container and returns the output
-func ExecCommand(containerName string, cmd []string) (string, error) {
-	ctx := context.Background()
-
-	execConfig := container.ExecOptions{
-		Cmd:          cmd,
-		AttachStdout: true,
-		AttachStderr: true,
-	}
-
-	execID, err := cli.ContainerExecCreate(ctx, containerName, execConfig)
-	if err != nil {
 		return "", fmt.Errorf("failed to create exec: %w", err)
 	}
 
@@ -471,36 +362,82 @@ func ExecCommand(containerName string, cmd []string) (string, error) {
 	}
 	defer resp.Close()
 
-	// Read the output
-	output, err := io.ReadAll(resp.Reader)
-	if err != nil {
+	// Demultiplex the Docker stream to strip the 8-byte frame headers.
+	var stdout, stderr bytes.Buffer
+	if _, err := stdcopy.StdCopy(&stdout, &stderr, resp.Reader); err != nil {
 		return "", fmt.Errorf("failed to read output: %w", err)
 	}
 
-	// Wait for completion and check exit code
+	output := strings.TrimSpace(stdout.String() + stderr.String())
+
+	// Wait for completion and check exit code.
 	for {
 		inspect, err := cli.ContainerExecInspect(ctx, execID.ID)
 		if err != nil {
-			return string(output), err
+			return output, err
 		}
 		if !inspect.Running {
 			if inspect.ExitCode != 0 {
-				return string(output), fmt.Errorf("command exited with code %d", inspect.ExitCode)
+				return output, fmt.Errorf("command exited with code %d", inspect.ExitCode)
 			}
 			break
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
 
-	return string(output), nil
+	return output, nil
 }
 
-func mustAtoi(s string) int {
-	i, err := strconv.Atoi(strings.TrimSpace(s))
+// CreateUser creates a new user in the database. admin* are the privileged
+// credentials used to authenticate the operation.
+func CreateUser(containerID, dbType, adminUser, adminPassword, username, password, dbName string) error {
+	registry := adapters.GetRegistry()
+	adapter, err := registry.Get(dbType)
 	if err != nil {
-		return 0
+		return fmt.Errorf("failed to get adapter: %w", err)
 	}
-	return i
+
+	cmd := adapter.CreateUserCommand(adminUser, adminPassword, username, password, dbName)
+	if cmd == nil {
+		return fmt.Errorf("user creation not supported for %s", dbType)
+	}
+
+	_, err = ExecCommand(containerID, cmd)
+	return err
+}
+
+// DeleteUser deletes a user from the database.
+func DeleteUser(containerID, dbType, adminUser, adminPassword, username, dbName string) error {
+	registry := adapters.GetRegistry()
+	adapter, err := registry.Get(dbType)
+	if err != nil {
+		return fmt.Errorf("failed to get adapter: %w", err)
+	}
+
+	cmd := adapter.DeleteUserCommand(adminUser, adminPassword, username, dbName)
+	if cmd == nil {
+		return fmt.Errorf("user deletion not supported for %s", dbType)
+	}
+
+	_, err = ExecCommand(containerID, cmd)
+	return err
+}
+
+// RotatePassword rotates a user's password.
+func RotatePassword(containerID, dbType, adminUser, adminPassword, username, newPassword, dbName string) error {
+	registry := adapters.GetRegistry()
+	adapter, err := registry.Get(dbType)
+	if err != nil {
+		return fmt.Errorf("failed to get adapter: %w", err)
+	}
+
+	cmd := adapter.RotatePasswordCommand(adminUser, adminPassword, username, newPassword, dbName)
+	if cmd == nil {
+		return fmt.Errorf("password rotation not supported for %s", dbType)
+	}
+
+	_, err = ExecCommand(containerID, cmd)
+	return err
 }
 
 // GetActualVersion retrieves the actual database version from a running container

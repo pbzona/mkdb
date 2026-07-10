@@ -10,13 +10,12 @@ import (
 	"github.com/pbzona/mkdb/internal/database"
 )
 
-// OrphanedVolume represents a volume that exists on disk but has no active container
+// OrphanedVolume represents a volume directory on disk with no tracked container.
 type OrphanedVolume struct {
-	Name      string
-	Path      string
-	Size      int64
-	ModTime   time.Time
-	Container *database.Container // Original container info if available
+	Name    string
+	Path    string
+	Size    int64
+	ModTime time.Time
 }
 
 // ScanOrphaned finds volumes on disk that don't have an active container
@@ -28,30 +27,16 @@ func ScanOrphaned() ([]*OrphanedVolume, error) {
 		return []*OrphanedVolume{}, nil
 	}
 
-	// Get all active containers
-	activeContainers, err := database.ListContainers()
+	// Build a map of volume names still tracked by a container record.
+	trackedContainers, err := database.ListContainers()
 	if err != nil {
-		return nil, fmt.Errorf("failed to list active containers: %w", err)
+		return nil, fmt.Errorf("failed to list containers: %w", err)
 	}
 
-	// Build map of active volume names
 	activeVolumes := make(map[string]*database.Container)
-	for _, c := range activeContainers {
+	for _, c := range trackedContainers {
 		if c.VolumeType == "named" && c.VolumePath != "" {
 			activeVolumes[c.VolumePath] = c
-		}
-	}
-
-	// Also get all containers (including expired) to find original container info
-	allContainers, err := database.ListAllContainers()
-	if err != nil {
-		return nil, fmt.Errorf("failed to list all containers: %w", err)
-	}
-
-	allVolumes := make(map[string]*database.Container)
-	for _, c := range allContainers {
-		if c.VolumeType == "named" && c.VolumePath != "" {
-			allVolumes[c.VolumePath] = c
 		}
 	}
 
@@ -89,19 +74,12 @@ func ScanOrphaned() ([]*OrphanedVolume, error) {
 			size = 0
 		}
 
-		orphan := &OrphanedVolume{
+		orphaned = append(orphaned, &OrphanedVolume{
 			Name:    volumeName,
 			Path:    volumePath,
 			Size:    size,
 			ModTime: info.ModTime(),
-		}
-
-		// Try to find original container info
-		if container, ok := allVolumes[volumeName]; ok {
-			orphan.Container = container
-		}
-
-		orphaned = append(orphaned, orphan)
+		})
 	}
 
 	return orphaned, nil
