@@ -1,22 +1,27 @@
 package ui
 
 import (
+	"errors"
 	"fmt"
-	"strings"
+	"os"
 	"time"
 
+	"github.com/charmbracelet/huh"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/manifoldco/promptui"
+	"github.com/mattn/go-isatty"
 	"github.com/pbzona/mkdb/internal/database"
 	"github.com/pbzona/mkdb/internal/types"
 )
+
+// ErrCancelled is returned by prompts when the user aborts (Ctrl+C / Esc).
+// Callers should treat it as a clean, non-error cancellation.
+var ErrCancelled = errors.New("cancelled")
 
 var (
 	successStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("10")).Bold(true)
 	errorStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("9")).Bold(true)
 	warningStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("11")).Bold(true)
 	infoStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("12")).Bold(true)
-	headerStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("13")).Bold(true).Underline(true)
 
 	boxStyle = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
@@ -24,177 +29,174 @@ var (
 			Padding(1, 2)
 )
 
-// Success prints a success message
+// IsInteractive reports whether we can prompt the user: stdin must be a
+// terminal (for input) and stderr must be a terminal (where prompts render).
+func IsInteractive() bool {
+	return isatty.IsTerminal(os.Stdin.Fd()) && isatty.IsTerminal(os.Stderr.Fd())
+}
+
+// runForm runs a single huh field, rendering to stderr so that stdout is
+// reserved for machine-readable output. Aborts are normalized to ErrCancelled.
+func runForm(field huh.Field) error {
+	err := huh.NewForm(huh.NewGroup(field)).WithOutput(os.Stderr).Run()
+	if errors.Is(err, huh.ErrUserAborted) {
+		return ErrCancelled
+	}
+	return err
+}
+
+// Status messages are written to stderr so they never pollute piped stdout.
+
+// Success prints a success message.
 func Success(message string) {
-	fmt.Println(successStyle.Render("✓ " + message))
+	fmt.Fprintln(os.Stderr, successStyle.Render("✓ "+message))
 }
 
-// Error prints an error message
+// Error prints an error message.
 func Error(message string) {
-	fmt.Println(errorStyle.Render("✗ " + message))
+	fmt.Fprintln(os.Stderr, errorStyle.Render("✗ "+message))
 }
 
-// Warning prints a warning message
+// Warning prints a warning message.
 func Warning(message string) {
-	fmt.Println(warningStyle.Render("⚠ " + message))
+	fmt.Fprintln(os.Stderr, warningStyle.Render("⚠ "+message))
 }
 
-// Info prints an info message
+// Info prints an info message.
 func Info(message string) {
-	fmt.Println(infoStyle.Render("ℹ " + message))
+	fmt.Fprintln(os.Stderr, infoStyle.Render("ℹ "+message))
 }
 
-// Header prints a header
-func Header(message string) {
-	fmt.Println(headerStyle.Render(message))
-}
-
-// Box prints text in a box
+// Box prints content in a box on stdout (used for primary command output).
 func Box(content string) {
 	fmt.Println(boxStyle.Render(content))
 }
 
-// SelectDBType prompts the user to select a database type
+// SelectDBType prompts the user to select a database type.
 func SelectDBType() (string, error) {
-	prompt := promptui.Select{
-		Label: "Select database type",
-		Items: types.ValidDBTypes(),
-		Templates: &promptui.SelectTemplates{
-			Label:    "{{ . }}",
-			Active:   "▸ {{ . | cyan }}",
-			Inactive: "  {{ . }}",
-			Selected: "{{ . | green }}",
-		},
-		Keys: &promptui.SelectKeys{
-			Prev:     promptui.Key{Code: promptui.KeyPrev, Display: "↑"},
-			Next:     promptui.Key{Code: promptui.KeyNext, Display: "↓"},
-			PageUp:   promptui.Key{Code: 'k'},
-			PageDown: promptui.Key{Code: 'j'},
-		},
+	if !IsInteractive() {
+		return "", fmt.Errorf("no database type specified (pass a type argument, e.g. 'mkdb create postgres')")
 	}
 
-	_, result, err := prompt.Run()
-	return result, err
+	dbTypes := types.ValidDBTypes()
+	options := make([]huh.Option[string], len(dbTypes))
+	for i, t := range dbTypes {
+		options[i] = huh.NewOption(t, t)
+	}
+
+	var selected string
+	if err := runForm(huh.NewSelect[string]().
+		Title("Select database type").
+		Options(options...).
+		Value(&selected)); err != nil {
+		return "", err
+	}
+	return selected, nil
 }
 
-// SelectContainer prompts the user to select a container
+// SelectContainer prompts the user to select a container.
 func SelectContainer(containers []*database.Container, label string) (*database.Container, error) {
 	if len(containers) == 0 {
 		return nil, fmt.Errorf("no containers found")
 	}
-
-	templates := &promptui.SelectTemplates{
-		Label:    "{{ . }}",
-		Active:   "▸ {{ .DisplayName | cyan }} ({{ .Type }})",
-		Inactive: "  {{ .DisplayName }} ({{ .Type }})",
-		Selected: "{{ .DisplayName | green }}",
+	if !IsInteractive() {
+		return nil, fmt.Errorf("no container specified (pass a name argument or --name)")
 	}
 
-	prompt := promptui.Select{
-		Label:     label,
-		Items:     containers,
-		Templates: templates,
-		Keys: &promptui.SelectKeys{
-			Prev:     promptui.Key{Code: promptui.KeyPrev, Display: "↑"},
-			Next:     promptui.Key{Code: promptui.KeyNext, Display: "↓"},
-			PageUp:   promptui.Key{Code: 'k'},
-			PageDown: promptui.Key{Code: 'j'},
-		},
+	options := make([]huh.Option[*database.Container], len(containers))
+	for i, c := range containers {
+		label := fmt.Sprintf("%s (%s)", c.DisplayName, c.Type)
+		options[i] = huh.NewOption(label, c)
 	}
 
-	idx, _, err := prompt.Run()
-	if err != nil {
+	var selected *database.Container
+	if err := runForm(huh.NewSelect[*database.Container]().
+		Title(label).
+		Options(options...).
+		Value(&selected)); err != nil {
 		return nil, err
 	}
-
-	return containers[idx], nil
+	return selected, nil
 }
 
-// SelectUser prompts the user to select a user
+// SelectUser prompts the user to select a user.
 func SelectUser(users []*database.User, label string) (*database.User, error) {
 	if len(users) == 0 {
 		return nil, fmt.Errorf("no users found")
 	}
-
-	templates := &promptui.SelectTemplates{
-		Label:    "{{ . }}",
-		Active:   "▸ {{ .Username | cyan }}",
-		Inactive: "  {{ .Username }}",
-		Selected: "{{ .Username | green }}",
+	if !IsInteractive() {
+		return nil, fmt.Errorf("no user specified (pass --username)")
 	}
 
-	prompt := promptui.Select{
-		Label:     label,
-		Items:     users,
-		Templates: templates,
-		Keys: &promptui.SelectKeys{
-			Prev:     promptui.Key{Code: promptui.KeyPrev, Display: "↑"},
-			Next:     promptui.Key{Code: promptui.KeyNext, Display: "↓"},
-			PageUp:   promptui.Key{Code: 'k'},
-			PageDown: promptui.Key{Code: 'j'},
-		},
+	options := make([]huh.Option[*database.User], len(users))
+	for i, u := range users {
+		options[i] = huh.NewOption(u.Username, u)
 	}
 
-	idx, _, err := prompt.Run()
-	if err != nil {
+	var selected *database.User
+	if err := runForm(huh.NewSelect[*database.User]().
+		Title(label).
+		Options(options...).
+		Value(&selected)); err != nil {
 		return nil, err
 	}
-
-	return users[idx], nil
+	return selected, nil
 }
 
-// PromptString prompts the user for a string input
+// PromptString prompts the user for a string input.
 func PromptString(label string, defaultValue string) (string, error) {
-	prompt := promptui.Prompt{
-		Label:   label,
-		Default: defaultValue,
+	if !IsInteractive() {
+		return defaultValue, nil
 	}
 
-	return prompt.Run()
+	value := defaultValue
+	if err := runForm(huh.NewInput().
+		Title(label).
+		Value(&value)); err != nil {
+		return "", err
+	}
+	return value, nil
 }
 
-// PromptConfirm prompts the user for confirmation
-func PromptConfirm(label string) (bool, error) {
-	prompt := promptui.Prompt{
-		Label:     label,
-		IsConfirm: true,
+// PromptConfirm prompts the user for confirmation. When not interactive it
+// returns defaultValue without prompting.
+func PromptConfirm(label string, defaultValue bool) (bool, error) {
+	if !IsInteractive() {
+		return defaultValue, nil
 	}
 
-	result, err := prompt.Run()
-	if err != nil {
-		if err == promptui.ErrAbort {
-			return false, nil
-		}
+	value := defaultValue
+	if err := runForm(huh.NewConfirm().
+		Title(label).
+		Affirmative("Yes").
+		Negative("No").
+		Value(&value)); err != nil {
 		return false, err
 	}
-
-	return strings.ToLower(result) == "y", nil
+	return value, nil
 }
 
-// SelectVolumeOption prompts the user to select a volume option
+// SelectVolumeOption prompts the user to select a volume option.
 func SelectVolumeOption() (string, error) {
-	prompt := promptui.Select{
-		Label: "Do you want to create a volume for this database?",
-		Items: []string{"none", "named", "custom path"},
-		Templates: &promptui.SelectTemplates{
-			Label:    "{{ . }}",
-			Active:   "▸ {{ . | cyan }}",
-			Inactive: "  {{ . }}",
-			Selected: "{{ . | green }}",
-		},
-		Keys: &promptui.SelectKeys{
-			Prev:     promptui.Key{Code: promptui.KeyPrev, Display: "↑"},
-			Next:     promptui.Key{Code: promptui.KeyNext, Display: "↓"},
-			PageUp:   promptui.Key{Code: 'k'},
-			PageDown: promptui.Key{Code: 'j'},
-		},
+	if !IsInteractive() {
+		return types.VolumeTypeNone, nil
 	}
 
-	_, result, err := prompt.Run()
-	return result, err
+	var selected string
+	if err := runForm(huh.NewSelect[string]().
+		Title("Create a volume for this database?").
+		Options(
+			huh.NewOption("No volume (data is lost on removal)", types.VolumeTypeNone),
+			huh.NewOption("Named volume (managed by mkdb)", types.VolumeTypeNamed),
+			huh.NewOption("Custom path (bind mount)", types.VolumeTypeCustom),
+		).
+		Value(&selected)); err != nil {
+		return "", err
+	}
+	return selected, nil
 }
 
-// FormatDuration formats a duration in a human-readable way
+// FormatDuration formats a duration in a human-readable way.
 func FormatDuration(d time.Duration) string {
 	if d < 0 {
 		return "expired"
@@ -212,7 +214,7 @@ func FormatDuration(d time.Duration) string {
 	return fmt.Sprintf("%dh %dm", hours, minutes)
 }
 
-// PrintContainerInfo prints detailed container information
+// PrintContainerInfo prints detailed container information.
 func PrintContainerInfo(c *database.Container) {
 	timeRemaining := time.Until(c.ExpiresAt)
 

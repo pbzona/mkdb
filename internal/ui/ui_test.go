@@ -167,7 +167,6 @@ func TestStyleFunctions(t *testing.T) {
 		{"Error", Error},
 		{"Warning", Warning},
 		{"Info", Info},
-		{"Header", Header},
 		{"Box", Box},
 	}
 
@@ -198,10 +197,6 @@ func TestLipglossStyles(t *testing.T) {
 
 	if infoStyle.Render(testText) == "" {
 		t.Error("infoStyle.Render() returned empty string")
-	}
-
-	if headerStyle.Render(testText) == "" {
-		t.Error("headerStyle.Render() returned empty string")
 	}
 
 	if boxStyle.Render(testText) == "" {

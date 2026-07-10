@@ -62,7 +62,10 @@ func Initialize() error {
 		return fmt.Errorf("failed to open log file: %w", err)
 	}
 
-	Logger = log.NewWithOptions(io.MultiWriter(os.Stdout, logFile), log.Options{
+	// Log to the file at info level. Only warnings/errors are surfaced to
+	// stderr so that stdout stays clean for machine-readable output such as
+	// connection strings printed by `mkdb creds show`.
+	Logger = log.NewWithOptions(logFile, log.Options{
 		ReportTimestamp: true,
 		TimeFormat:      "2006-01-02 15:04:05",
 		Prefix:          "mkdb",
