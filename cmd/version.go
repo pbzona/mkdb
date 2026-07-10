@@ -6,16 +6,14 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var (
-	// Version is the current version of mkdb
-	// This can be overridden at build time with -ldflags
-	Version = "dev"
-)
+// Version is the current version of mkdb, overridable at build time via
+// -ldflags "-X github.com/pbzona/mkdb/cmd.Version=...".
+var Version = "dev"
 
 var versionCmd = &cobra.Command{
 	Use:   "version",
-	Short: "Print the version number of mkdb",
-	Long:  `Display the current version of mkdb.`,
+	Short: "Print the mkdb version",
+	Args:  cobra.NoArgs,
 	Run: func(cmd *cobra.Command, args []string) {
 		fmt.Printf("mkdb %s\n", Version)
 	},

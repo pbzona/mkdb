@@ -1,8 +1,8 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
-	"time"
 
 	"github.com/pbzona/mkdb/internal/database"
 	"github.com/pbzona/mkdb/internal/docker"
@@ -11,96 +11,75 @@ import (
 )
 
 var (
-	rmContainerName string
+	rmName string
+	rmYes  bool
 )
 
 var rmCmd = &cobra.Command{
-	Use:     "remove",
-	Aliases: []string{"rm"},
-	Short:   "Delete an existing container and its volume",
-	Long:    `Delete an existing database container and its associated volume.`,
+	Use:     "rm [name]",
+	Aliases: []string{"remove"},
+	Short:   "Delete a database container and its volume",
+	Long:    `Delete a database container along with its data volume. This cannot be undone.`,
+	Args:    cobra.MaximumNArgs(1),
 	RunE:    runRm,
 }
 
 func init() {
 	rootCmd.AddCommand(rmCmd)
-	rmCmd.Flags().StringVar(&rmContainerName, "name", "", "Container name (skips interactive selection)")
+	rmCmd.Flags().StringVar(&rmName, "name", "", "Container name (skips interactive selection)")
+	rmCmd.Flags().BoolVarP(&rmYes, "yes", "y", false, "Skip the confirmation prompt")
 }
 
 func runRm(cmd *cobra.Command, args []string) error {
-	var container *database.Container
-	var err error
+	container, err := resolveContainer(args, rmName, "Select container to remove", nil)
+	if errors.Is(err, errNoContainers) {
+		ui.Warning("No containers found")
+		return nil
+	}
+	if errors.Is(err, ui.ErrCancelled) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
 
-	// If name is provided, look it up directly
-	if rmContainerName != "" {
-		container, err = database.GetContainerByDisplayName(rmContainerName)
-		if err != nil {
-			return fmt.Errorf("container '%s' not found", rmContainerName)
+	if !rmYes {
+		if !ui.IsInteractive() {
+			return fmt.Errorf("refusing to remove '%s' without confirmation; pass --yes", container.DisplayName)
 		}
-	} else {
-		// Get all containers
-		containers, err := database.ListContainers()
-		if err != nil {
-			return fmt.Errorf("failed to list containers: %w", err)
-		}
-
-		if len(containers) == 0 {
-			ui.Warning("No containers found")
+		confirmed, err := ui.PromptConfirm(
+			fmt.Sprintf("Delete '%s' and its volume? This cannot be undone", container.DisplayName), false)
+		if errors.Is(err, ui.ErrCancelled) {
 			return nil
 		}
-
-		// Select container
-		container, err = ui.SelectContainer(containers, "Select container to remove")
 		if err != nil {
-			return fmt.Errorf("failed to select container: %w", err)
+			return err
 		}
-	}
-
-	// Confirm deletion
-	confirmed, err := ui.PromptConfirm(fmt.Sprintf("Are you sure you want to delete '%s'? This will remove the container and its volume", container.DisplayName))
-	if err != nil {
-		return fmt.Errorf("failed to get confirmation: %w", err)
-	}
-
-	if !confirmed {
-		ui.Info("Deletion cancelled")
-		return nil
+		if !confirmed {
+			ui.Info("Cancelled")
+			return nil
+		}
 	}
 
 	ui.Info(fmt.Sprintf("Removing container '%s'...", container.DisplayName))
 
-	// Stop and remove container
 	if container.ContainerID != "" && docker.ContainerExists(container.ContainerID) {
 		if err := docker.StopContainer(container.ContainerID); err != nil {
 			ui.Warning(fmt.Sprintf("Failed to stop container: %v", err))
 		}
-
 		if err := docker.RemoveContainer(container.ContainerID); err != nil {
 			ui.Warning(fmt.Sprintf("Failed to remove container: %v", err))
 		}
 	}
 
-	// Remove volume if it exists
-	if container.VolumePath != "" {
-		if err := docker.RemoveVolume(container.VolumePath); err != nil {
-			ui.Warning(fmt.Sprintf("Failed to remove volume: %v", err))
-		}
+	if err := docker.RemoveVolume(container.VolumeType, container.VolumePath); err != nil {
+		ui.Warning(fmt.Sprintf("Failed to remove volume: %v", err))
 	}
 
-	// Log event
-	event := &database.Event{
-		ContainerID: container.ID,
-		EventType:   "deleted",
-		Timestamp:   time.Now(),
-		Details:     "Container deleted by user",
-	}
-	database.CreateEvent(event)
-
-	// Delete from database
 	if err := database.DeleteContainer(container.ID); err != nil {
-		return fmt.Errorf("failed to delete container from database: %w", err)
+		return fmt.Errorf("failed to delete container record: %w", err)
 	}
 
-	ui.Success(fmt.Sprintf("Container '%s' removed successfully!", container.DisplayName))
+	ui.Success(fmt.Sprintf("Container '%s' removed", container.DisplayName))
 	return nil
 }

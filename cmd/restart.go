@@ -1,125 +1,59 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
-	"time"
 
-	"github.com/pbzona/mkdb/internal/config"
 	"github.com/pbzona/mkdb/internal/database"
 	"github.com/pbzona/mkdb/internal/docker"
+	"github.com/pbzona/mkdb/internal/types"
 	"github.com/pbzona/mkdb/internal/ui"
 	"github.com/spf13/cobra"
 )
 
-var (
-	restartContainerName string
-)
+var restartName string
 
 var restartCmd = &cobra.Command{
-	Use:   "restart",
+	Use:   "restart [name]",
 	Short: "Restart a database container",
-	Long:  `Restart a stopped database container with its existing data.`,
+	Long:  `Restart a database container, recreating it from stored settings if the underlying container no longer exists.`,
+	Args:  cobra.MaximumNArgs(1),
 	RunE:  runRestart,
 }
 
 func init() {
 	rootCmd.AddCommand(restartCmd)
-	restartCmd.Flags().StringVar(&restartContainerName, "name", "", "Container name (skips interactive selection)")
+	restartCmd.Flags().StringVar(&restartName, "name", "", "Container name (skips interactive selection)")
 }
 
 func runRestart(cmd *cobra.Command, args []string) error {
-	var container *database.Container
-	var err error
-
-	// If name is provided, look it up directly
-	if restartContainerName != "" {
-		container, err = database.GetContainerByDisplayName(restartContainerName)
-		if err != nil {
-			return fmt.Errorf("container '%s' not found", restartContainerName)
-		}
-	} else {
-		// Get all containers
-		containers, err := database.ListContainers()
-		if err != nil {
-			return fmt.Errorf("failed to list containers: %w", err)
-		}
-
-		if len(containers) == 0 {
-			ui.Warning("No containers found")
-			return nil
-		}
-
-		// Select container
-		container, err = ui.SelectContainer(containers, "Select container to restart")
-		if err != nil {
-			return fmt.Errorf("failed to select container: %w", err)
-		}
+	container, err := resolveContainer(args, restartName, "Select container to restart", nil)
+	if errors.Is(err, errNoContainers) {
+		ui.Warning("No containers found")
+		return nil
+	}
+	if errors.Is(err, ui.ErrCancelled) {
+		return nil
+	}
+	if err != nil {
+		return err
 	}
 
 	ui.Info(fmt.Sprintf("Restarting container '%s'...", container.DisplayName))
 
-	// Check if container exists
 	if container.ContainerID != "" && docker.ContainerExists(container.ContainerID) {
-		// Container exists, just restart it
 		if err := docker.RestartContainer(container.ContainerID); err != nil {
 			return fmt.Errorf("failed to restart container: %w", err)
 		}
-	} else {
-		// Container doesn't exist, recreate it
-		ui.Info("Container not found, recreating...")
-
-		// Get default user credentials
-		user, err := database.GetDefaultUser(container.ID)
-		if err != nil {
-			return fmt.Errorf("failed to get default user: %w", err)
-		}
-
-		// Handle unauthenticated databases
-		var username, password string
-		if user.Username != "" && user.PasswordHash != "" {
-			username = user.Username
-			password, err = config.Decrypt(user.PasswordHash)
-			if err != nil {
-				return fmt.Errorf("failed to decrypt password: %w", err)
-			}
-		} else {
-			// Unauthenticated database
-			username = ""
-			password = ""
-		}
-
-		containerID, err := docker.CreateContainer(
-			container.Type,
-			container.DisplayName,
-			username,
-			password,
-			container.Port,
-			container.VolumeType,
-			container.VolumePath,
-			container.Version,
-		)
-		if err != nil {
-			return fmt.Errorf("failed to create container: %w", err)
-		}
-
-		container.ContainerID = containerID
+	} else if err := recreateContainer(container); err != nil {
+		return err
 	}
 
-	// Update status
-	container.Status = "running"
+	container.Status = types.StatusRunning
 	if err := database.UpdateContainer(container); err != nil {
 		return fmt.Errorf("failed to update container status: %w", err)
 	}
 
-	// Log event
-	event := &database.Event{
-		ContainerID: container.ID,
-		EventType:   "restarted",
-		Timestamp:   time.Now(),
-		Details:     "Container restarted by user",
-	}
-	database.CreateEvent(event)
-
-	ui.Success(fmt.Sprintf("Container '%s' restarted successfully!", container.DisplayName))
+	ui.Success(fmt.Sprintf("Container '%s' restarted", container.DisplayName))
 	return nil
 }

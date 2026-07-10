@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/pbzona/mkdb/internal/cleanup"
@@ -11,8 +12,9 @@ import (
 
 var cleanupCmd = &cobra.Command{
 	Use:   "cleanup",
-	Short: "Clean up expired database containers",
-	Long:  `Interactively select and remove expired database containers and their volumes.`,
+	Short: "Review and remove expired database containers",
+	Long:  `Interactively select expired database containers to extend or remove.`,
+	Args:  cobra.NoArgs,
 	RunE:  runCleanup,
 }
 
@@ -21,7 +23,6 @@ func init() {
 }
 
 func runCleanup(cmd *cobra.Command, args []string) error {
-	// Get expired containers
 	containers, err := database.GetExpiredContainers()
 	if err != nil {
 		return fmt.Errorf("failed to get expired containers: %w", err)
@@ -34,6 +35,12 @@ func runCleanup(cmd *cobra.Command, args []string) error {
 
 	ui.Info(fmt.Sprintf("Found %d expired container(s)", len(containers)))
 
-	// Force cleanup to run (it will prompt for selection)
-	return cleanup.RunInteractive(containers)
+	if err := cleanup.RunInteractive(containers); err != nil {
+		if errors.Is(err, ui.ErrCancelled) {
+			ui.Info("Cancelled")
+			return nil
+		}
+		return err
+	}
+	return nil
 }
