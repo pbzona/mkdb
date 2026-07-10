@@ -95,7 +95,9 @@ net:
 `
 }
 
-func (m *MongoDBAdapter) CreateUserCommand(username, password, dbName string) []string {
+// adminUser/adminPassword are the container's privileged credentials, used to
+// authenticate the administrative command (empty for unauthenticated databases).
+func (m *MongoDBAdapter) CreateUserCommand(adminUser, adminPassword, username, password, dbName string) []string {
     return []string{
         "mongo", dbName, "--eval",
         fmt.Sprintf("db.createUser({user: '%s', pwd: '%s', roles: [{role: 'readWrite', db: '%s'}]})",
@@ -103,20 +105,49 @@ func (m *MongoDBAdapter) CreateUserCommand(username, password, dbName string) []
     }
 }
 
-func (m *MongoDBAdapter) DeleteUserCommand(username, dbName string) []string {
+func (m *MongoDBAdapter) DeleteUserCommand(adminUser, adminPassword, username, dbName string) []string {
     return []string{
         "mongo", dbName, "--eval",
         fmt.Sprintf("db.dropUser('%s')", username),
     }
 }
 
-func (m *MongoDBAdapter) RotatePasswordCommand(username, newPassword, dbName string) []string {
+func (m *MongoDBAdapter) RotatePasswordCommand(adminUser, adminPassword, username, newPassword, dbName string) []string {
     return []string{
         "mongo", dbName, "--eval",
         fmt.Sprintf("db.changeUserPassword('%s', '%s')", username, newPassword),
     }
 }
+
+func (m *MongoDBAdapter) FormatConnectionString(username, password, host, port, dbName string) string {
+    if username == "" && password == "" {
+        return fmt.Sprintf("mongodb://%s:%s/%s", host, port, dbName)
+    }
+    return fmt.Sprintf("mongodb://%s:%s@%s:%s/%s", username, password, host, port, dbName)
+}
+
+// GetCommandArgs returns custom startup arguments (empty when none are needed).
+func (m *MongoDBAdapter) GetCommandArgs(password string) []string {
+    return []string{}
+}
+
+func (m *MongoDBAdapter) GetVersionCommand() []string {
+    return []string{"mongod", "--version"}
+}
+
+func (m *MongoDBAdapter) ParseVersion(output string) string {
+    // Input: "db version v7.0.5"; Output: "7.0.5"
+    for _, part := range strings.Fields(output) {
+        if strings.HasPrefix(part, "v") {
+            return strings.TrimPrefix(part, "v")
+        }
+    }
+    return strings.TrimSpace(output)
+}
 ```
+
+> The example above implements every method of `DatabaseAdapter`. Add
+> `"strings"` to the import block for `ParseVersion`.
 
 ### 2. Register the Adapter
 
@@ -162,16 +193,23 @@ The adapter will automatically be:
 | `GetConfigPath()` | Config directory in container | string |
 | `GetConfigFileName()` | Main config file name | string |
 | `GetDefaultConfig()` | Default config file content | string |
+| `FormatConnectionString(user, pass, host, port, db)` | Connection string | string |
+| `GetCommandArgs(password)` | Custom container startup args | []string |
+| `GetVersionCommand()` | Command to print the engine version | []string or nil |
+| `ParseVersion(output)` | Extract a clean version from that output | string |
 
 ### Optional Methods (can return nil)
 
 | Method | Purpose | Returns |
 |--------|---------|---------|
-| `CreateUserCommand(user, pass, db)` | Command to create database user | []string or nil |
-| `DeleteUserCommand(user, db)` | Command to delete database user | []string or nil |
-| `RotatePasswordCommand(user, pass, db)` | Command to change user password | []string or nil |
+| `CreateUserCommand(adminUser, adminPass, user, pass, db)` | Command to create database user | []string or nil |
+| `DeleteUserCommand(adminUser, adminPass, user, db)` | Command to delete database user | []string or nil |
+| `RotatePasswordCommand(adminUser, adminPass, user, newPass, db)` | Command to change user password | []string or nil |
 
-If these methods return `nil`, the operation will return an error indicating it's not supported for this database type.
+`adminUser`/`adminPass` are the container's privileged (default-user) credentials
+used to authenticate the operation; both are empty for unauthenticated databases.
+If these methods return `nil`, the operation returns an error indicating it's not
+supported for this database type.
 
 ## Usage Examples
 
@@ -203,8 +241,8 @@ envVars := adapter.GetEnvVars("mydb", "user", "pass")
 dataPath := adapter.GetDataPath()
 configPath := adapter.GetConfigPath()
 
-// Get user management commands
-createCmd := adapter.CreateUserCommand("newuser", "password", "mydb")
+// Get user management commands (adminUser/adminPass authenticate the operation)
+createCmd := adapter.CreateUserCommand("dbuser", "adminpass", "newuser", "password", "mydb")
 if createCmd != nil {
     // Execute the command
 }
@@ -265,8 +303,8 @@ go test ./internal/adapters/...
 Redis has some unique characteristics that are handled differently:
 
 1. **Authentication**: Redis doesn't use traditional username/password authentication. It only uses a password (requirepass). The adapter:
-   - Returns `false` for `SupportsUsername()`
-   - Uses command line args `--requirepass` to set the password
+   - Returns `nil` from the user-management commands (user management is unsupported)
+   - Uses command line args `--requirepass` (via `GetCommandArgs`) to set the password
    - Formats connection strings as `redis://:<password>@host:port/db`
 
 2. **Database Selection**: Redis uses numeric databases (0-15 by default). The `dbName` parameter is treated as the database number in the connection string.
