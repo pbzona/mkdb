@@ -3,6 +3,7 @@ package docker
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -38,6 +39,29 @@ type DBConfig struct {
 	Image       string
 	DefaultPort string
 	EnvVars     map[string]string
+}
+
+// PortConflictError indicates that Docker could not publish the requested
+// host port. Callers can use this to retry an automatically selected port
+// without treating other startup failures as recoverable.
+type PortConflictError struct {
+	Port string
+	Err  error
+}
+
+func (e *PortConflictError) Error() string {
+	return fmt.Sprintf("port %s is already in use: %v", e.Port, e.Err)
+}
+
+func (e *PortConflictError) Unwrap() error {
+	return e.Err
+}
+
+// IsPortConflict reports whether err was caused by Docker failing to publish
+// a host port.
+func IsPortConflict(err error) bool {
+	var conflict *PortConflictError
+	return errors.As(err, &conflict)
 }
 
 // Initialize creates a Docker client. It does not contact the daemon, so
@@ -196,16 +220,36 @@ func CreateContainer(dbType, displayName, username, password, port, volumeType, 
 		},
 	}, nil, nil, containerName)
 	if err != nil {
-		return "", fmt.Errorf("failed to create container: %w", err)
+		return "", wrapContainerError("create", port, err)
 	}
 
 	// Start container
 	if err := cli.ContainerStart(ctx, resp.ID, container.StartOptions{}); err != nil {
-		return "", fmt.Errorf("failed to start container: %w", err)
+		// ContainerCreate succeeds before Docker validates the host binding. Do
+		// not leave that intermediate container behind when startup fails.
+		if removeErr := cli.ContainerRemove(ctx, resp.ID, container.RemoveOptions{Force: true}); removeErr != nil {
+			if config.Logger != nil {
+				config.Logger.Warn("Failed to remove container after startup failure", "id", resp.ID, "error", removeErr)
+			}
+		}
+		return "", wrapContainerError("start", port, err)
 	}
 
 	config.Logger.Info("Container created", "id", resp.ID[:12], "name", displayName)
 	return resp.ID, nil
+}
+
+func wrapContainerError(operation, port string, err error) error {
+	if isPortConflict(err) {
+		return &PortConflictError{Port: port, Err: err}
+	}
+	return fmt.Errorf("failed to %s container: %w", operation, err)
+}
+
+func isPortConflict(err error) bool {
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "port is already allocated") ||
+		strings.Contains(message, "address already in use")
 }
 
 // createMount creates a mount configuration

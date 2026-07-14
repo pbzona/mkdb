@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -97,7 +98,8 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("a database named '%s' already exists", settings.Name)
 	}
 
-	hostPort, err := resolvePort(settings.Port, dbConfig.DefaultPort)
+	portExplicit := cmd.Flags().Changed("port") && strings.TrimSpace(createPort) != ""
+	hostPort, err := resolvePort(settings.Port, dbConfig.DefaultPort, portExplicit)
 	if err != nil {
 		return err
 	}
@@ -127,13 +129,14 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		ui.Info("Authentication disabled")
 	}
 
-	containerID, err := docker.CreateContainer(
+	containerID, hostPort, err := createContainerWithAvailablePort(
 		settings.DBType, settings.Name, username, password,
-		hostPort, volumeType, volumePath, settings.Version,
+		hostPort, volumeType, volumePath, settings.Version, portExplicit,
 	)
 	if err != nil {
-		return fmt.Errorf("failed to create container: %w", err)
+		return err
 	}
+	settings.Port = hostPort
 
 	now := time.Now()
 	container := &database.Container{
@@ -151,7 +154,10 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	}
 
 	if err := database.CreateContainer(container); err != nil {
-		docker.RemoveContainer(containerID) // best-effort rollback
+		removeErr := docker.RemoveContainer(containerID) // best-effort rollback
+		if removeErr != nil && config.Logger != nil {
+			config.Logger.Warn("Failed to roll back container", "name", settings.Name, "error", removeErr)
+		}
 		return fmt.Errorf("failed to store container: %w", err)
 	}
 
@@ -159,6 +165,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	if authEnabled {
 		passwordHash, err = config.Encrypt(password)
 		if err != nil {
+			rollbackCreatedContainer(container)
 			return fmt.Errorf("failed to encrypt password: %w", err)
 		}
 	}
@@ -170,6 +177,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		IsDefault:    true,
 		CreatedAt:    now,
 	}); err != nil {
+		rollbackCreatedContainer(container)
 		return fmt.Errorf("failed to create user: %w", err)
 	}
 
@@ -262,6 +270,9 @@ func buildSettings(cmd *cobra.Command, args []string) (*config.LastSettings, err
 			return nil, fmt.Errorf("no previous settings found; create a database first")
 		}
 		ui.Info(fmt.Sprintf("Reusing settings: %s database '%s'", last.DBType, last.Name))
+		if cmd.Flags().Changed("port") {
+			last.Port = createPort
+		}
 		if last.TTLHours == 0 {
 			last.TTLHours = createTTL
 		}
@@ -304,9 +315,11 @@ func buildSettings(cmd *cobra.Command, args []string) (*config.LastSettings, err
 	return settings, nil
 }
 
-// resolvePort selects the host port, auto-advancing from the default when free.
-func resolvePort(requested, defaultPort string) (string, error) {
-	if requested != "" {
+// resolvePort selects the host port, auto-advancing from the preferred port
+// when it is not explicitly requested and is unavailable.
+func resolvePort(requested, defaultPort string, explicit bool) (string, error) {
+	requested = strings.TrimSpace(requested)
+	if explicit {
 		available, err := docker.IsPortAvailable(requested)
 		if err != nil {
 			return "", err
@@ -317,21 +330,92 @@ func resolvePort(requested, defaultPort string) (string, error) {
 		return requested, nil
 	}
 
-	available, err := docker.IsPortAvailable(defaultPort)
+	preferred := defaultPort
+	if requested != "" {
+		preferred = requested
+	}
+	available, err := docker.IsPortAvailable(preferred)
 	if err != nil {
 		return "", err
 	}
 	if available {
-		return defaultPort, nil
+		return preferred, nil
 	}
 
-	ui.Warning(fmt.Sprintf("Port %s is in use, finding the next available port...", defaultPort))
-	port, err := docker.FindAvailablePort(defaultPort)
+	ui.Warning(fmt.Sprintf("Port %s is in use, finding the next available port...", preferred))
+	port, err := docker.FindAvailablePort(preferred)
 	if err != nil {
 		return "", err
 	}
 	ui.Info(fmt.Sprintf("Using port %s", port))
 	return port, nil
+}
+
+const maxAutomaticPortRetries = 100
+
+// createContainerWithAvailablePort retries Docker-level port conflicts. A
+// preflight socket check cannot eliminate the race between checking a port and
+// asking Docker to publish it, especially when Docker Desktop owns the socket.
+func createContainerWithAvailablePort(dbType, displayName, username, password, port, volumeType, volumePath, version string, explicitPort bool) (string, string, error) {
+	return createContainerWithPort(port, explicitPort, func(port string) (string, error) {
+		return docker.CreateContainer(
+			dbType, displayName, username, password,
+			port, volumeType, volumePath, version,
+		)
+	})
+}
+
+func createContainerWithPort(port string, explicitPort bool, create func(string) (string, error)) (string, string, error) {
+	for attempt := 0; attempt < maxAutomaticPortRetries; attempt++ {
+		containerID, err := create(port)
+		if err == nil {
+			return containerID, port, nil
+		}
+
+		if !docker.IsPortConflict(err) {
+			return "", port, fmt.Errorf("failed to create container: %w", err)
+		}
+		if explicitPort {
+			return "", port, fmt.Errorf("port %s is already in use", port)
+		}
+
+		next, err := nextPort(port)
+		if err != nil {
+			return "", port, err
+		}
+		next, err = docker.FindAvailablePort(next)
+		if err != nil {
+			return "", port, fmt.Errorf("port %s is unavailable and no alternative port was found: %w", port, err)
+		}
+		ui.Warning(fmt.Sprintf("Port %s became unavailable, trying port %s...", port, next))
+		port = next
+	}
+
+	return "", port, fmt.Errorf("unable to find an available host port after %d attempts", maxAutomaticPortRetries)
+}
+
+func nextPort(port string) (string, error) {
+	n, err := strconv.Atoi(strings.TrimSpace(port))
+	if err != nil {
+		return "", fmt.Errorf("invalid port %q", port)
+	}
+	if n >= 65535 {
+		return "", fmt.Errorf("no available port after %s", port)
+	}
+	return strconv.Itoa(n + 1), nil
+}
+
+func rollbackCreatedContainer(container *database.Container) {
+	if container.ContainerID != "" {
+		if err := docker.RemoveContainer(container.ContainerID); err != nil && config.Logger != nil {
+			config.Logger.Warn("Failed to roll back container", "name", container.DisplayName, "error", err)
+		}
+	}
+	if container.ID != 0 {
+		if err := database.DeleteContainer(container.ID); err != nil && config.Logger != nil {
+			config.Logger.Warn("Failed to roll back container record", "name", container.DisplayName, "error", err)
+		}
+	}
 }
 
 // resolveVolume determines the volume type/path from flags, repeat settings, or

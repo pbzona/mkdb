@@ -326,8 +326,10 @@ Aliases work anywhere a type is accepted (the `create` argument, `ls --type`, et
 - MySQL: 3306
 - Redis: 6379
 
-If no `--port` is given and the default is in use, mkdb picks the next free port. If a
-specific `--port` is given and it's taken, mkdb reports an error.
+If no `--port` is given and the default is in use, mkdb picks the next free port. If Docker
+reports a conflict after the initial check, mkdb cleans up the partial container and retries
+with the next available port. If a specific `--port` is given and it's taken, mkdb reports an
+error.
 
 ### TTL (time to live)
 
