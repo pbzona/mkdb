@@ -7,6 +7,8 @@ A CLI tool to easily create and manage disposable local Docker database containe
 - **Multiple database types**: PostgreSQL, MySQL, and Redis
 - **Positional or interactive**: `mkdb create postgres --name app`, or run with no flags and answer prompts
 - **Script-friendly**: connection strings go to stdout, status messages to stderr, and fully-flagged commands never prompt
+- **Agent-ready**: `--json` output, stable exit codes, a readiness wait on `create`, and a bundled [agent skill](skills/mkdb/SKILL.md)
+- **Schema seeding**: load a SQL script at create time with `--init`
 - **Automatic expiry**: containers expire after 2 hours by default (configurable) and are surfaced for cleanup
 - **Encrypted credentials**: passwords stored with AES-256-GCM
 - **Volume management**: no volume, an mkdb-managed named volume, or a bind mount to any path
@@ -93,6 +95,13 @@ Create and start a new database container. `type` is one of `postgres`, `mysql`,
 - `--ttl` — time to live in hours (default: 2)
 - `--repeat` — reuse the settings from the last database created
 - `--no-auth` — create without authentication
+- `--init` — path to a SQL script applied once the database is ready (postgres/mysql)
+- `--no-wait` — return immediately instead of waiting for the database to accept connections
+- `--wait-timeout` — seconds to wait for readiness (default: 30)
+
+By default `create` blocks until the database actually accepts connections, so the printed
+connection string is immediately usable. If readiness isn't reached within `--wait-timeout`,
+the command still prints the connection details but exits with code 4.
 
 **Authentication** is enabled by default. A random 20-character password is generated and
 shown as part of the connection string. Pass `--no-auth` to create an open database
@@ -122,6 +131,9 @@ mkdb create postgres --name public --no-auth --ttl 48
 
 # Reuse the previous settings
 mkdb create --repeat
+
+# Create and load a schema, then tear it down when done
+mkdb create postgres --name app --init ./schema.sql
 ```
 
 ### `mkdb ls` (alias `list`)
@@ -242,9 +254,31 @@ container to apply changes.
 Review expired containers and interactively choose which to extend or remove. Removing a
 container deletes its volume and record.
 
+**Flags:**
+- `--dry-run` — list expired containers without removing anything
+- `--yes`, `-y` — remove all expired containers without prompting (for scripts/agents)
+
 mkdb does not clean up automatically. When expired containers exist, other commands print a
 one-line notice (`⚠ N database(s) expired — run 'mkdb cleanup' to review`) so nothing is
 deleted without your involvement.
+
+```bash
+mkdb cleanup                 # interactive review
+mkdb cleanup --dry-run       # show what would be removed
+mkdb cleanup --yes           # remove all expired, no prompt
+```
+
+### `mkdb doctor`
+
+Diagnose the local environment: Docker connectivity, data-directory access, encryption key,
+the state database, and drift between Docker and mkdb's own records. Supports `--json`.
+
+```bash
+mkdb doctor
+mkdb doctor --json
+```
+
+Exit codes: `0` all checks pass, `3` Docker is unreachable, `1` another check failed.
 
 ### `mkdb version`
 
@@ -348,6 +382,72 @@ mkdb create redis --name cache --no-auth --volume none | grep '^DB_URL='
 Commands never prompt without a terminal. If required input is missing in a non-interactive
 context, the command exits with an error naming the flag to pass.
 
+## Automation & AI agents
+
+mkdb is designed to be driven by scripts and AI agents, not just humans.
+
+### JSON output
+
+Pass `--json` to `create`, `ls`, `info`, `creds show`, `cleanup`, and `doctor` for a stable,
+machine-readable document on stdout (human status still goes to stderr):
+
+```bash
+mkdb create postgres --name app --json
+mkdb ls --json
+mkdb info app --ping --json
+```
+
+A container object looks like:
+
+```json
+{
+  "name": "app",
+  "type": "postgres",
+  "version": "18",
+  "status": "running",
+  "host": "localhost",
+  "port": "5432",
+  "url": "postgresql://dbuser:...@localhost:5432/app",
+  "ready": true,
+  "created_at": "2026-07-10T23:31:35-04:00",
+  "expires_at": "2026-07-11T00:31:35-04:00",
+  "expires_in_seconds": 3598,
+  "volume_type": "none"
+}
+```
+
+`ls` and `cleanup --yes`/`--dry-run` return an array of these objects. `ready` is present on
+`create` and on `info --ping`. Fields are additive-only.
+
+### Exit codes
+
+| Code | Meaning |
+| ---- | ------- |
+| `0`  | success |
+| `1`  | general error |
+| `2`  | container/resource not found |
+| `3`  | Docker daemon unreachable |
+| `4`  | operation timed out (e.g. readiness wait) |
+
+### Readiness
+
+`create` blocks until the database accepts connections, so the returned `url` is ready to use
+with no arbitrary `sleep`. Use `--wait-timeout` to bound the wait and `--no-wait` to skip it.
+
+### Skill for AI agents
+
+A ready-to-use agent skill lives in [`skills/mkdb/SKILL.md`](skills/mkdb/SKILL.md). It teaches
+an agent to spin databases up and down on demand, seed them, and clean up afterward. Install it
+by copying the folder into your agent's skills directory, for example:
+
+```bash
+# Claude Code
+cp -r skills/mkdb ~/.claude/skills/mkdb
+
+# Generic (~/.agents) convention
+cp -r skills/mkdb ~/.agents/skills/mkdb
+```
+
 ## Troubleshooting
 
 ### Docker daemon not running
@@ -416,6 +516,8 @@ mkdb/
 │   ├── adapters/        # per-engine behavior (postgres, mysql, redis)
 │   ├── types/           # shared constants and normalization
 │   └── ui/              # prompts (huh) and output styling
+├── skills/
+│   └── mkdb/            # agent skill (SKILL.md)
 ├── mise.toml
 └── main.go
 ```

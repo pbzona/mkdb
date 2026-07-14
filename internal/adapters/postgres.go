@@ -113,6 +113,11 @@ func (p *PostgresAdapter) RotatePasswordCommand(adminUser, adminPassword, userna
 	}
 }
 
+func (p *PostgresAdapter) InitCommand(adminUser, adminPassword, dbName string) []string {
+	// Reads SQL from stdin; ON_ERROR_STOP=1 makes a bad script fail the exec.
+	return []string{"psql", "-v", "ON_ERROR_STOP=1", "-U", p.adminRole(adminUser), "-d", dbName}
+}
+
 func (p *PostgresAdapter) FormatConnectionString(username, password, host, port, dbName string) string {
 	// If no username/password, connect as postgres user without authentication
 	if username == "" && password == "" {

@@ -24,6 +24,12 @@ func Notify() {
 	ui.Warning(fmt.Sprintf("%d database(s) expired — run 'mkdb cleanup' to review", len(containers)))
 }
 
+// Remove stops and removes a single container, its volume, and its record. It
+// is the non-interactive entry point used by `mkdb cleanup --yes`.
+func Remove(c *database.Container) error {
+	return cleanupContainer(c)
+}
+
 // RunInteractive prompts the user to select expired containers to extend or
 // remove. It requires an interactive terminal.
 func RunInteractive(containers []*database.Container) error {

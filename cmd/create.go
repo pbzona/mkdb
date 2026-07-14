@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/pbzona/mkdb/internal/adapters"
 	"github.com/pbzona/mkdb/internal/config"
 	"github.com/pbzona/mkdb/internal/credentials"
 	"github.com/pbzona/mkdb/internal/database"
@@ -17,13 +18,16 @@ import (
 )
 
 var (
-	createName    string
-	createVersion string
-	createPort    string
-	createVolume  string
-	createTTL     int
-	createRepeat  bool
-	createNoAuth  bool
+	createName        string
+	createVersion     string
+	createPort        string
+	createVolume      string
+	createTTL         int
+	createRepeat      bool
+	createNoAuth      bool
+	createNoWait      bool
+	createWaitTimeout int
+	createInit        string
 )
 
 var createCmd = &cobra.Command{
@@ -49,6 +53,9 @@ func init() {
 	createCmd.Flags().IntVar(&createTTL, "ttl", 2, "Time to live in hours")
 	createCmd.Flags().BoolVar(&createRepeat, "repeat", false, "Reuse the settings from the last database created")
 	createCmd.Flags().BoolVar(&createNoAuth, "no-auth", false, "Create the database without authentication")
+	createCmd.Flags().BoolVar(&createNoWait, "no-wait", false, "Return immediately without waiting for the database to accept connections")
+	createCmd.Flags().IntVar(&createWaitTimeout, "wait-timeout", 30, "Seconds to wait for the database to become ready")
+	createCmd.Flags().StringVar(&createInit, "init", "", "Path to a SQL script to run once the database is ready (postgres/mysql)")
 }
 
 func runCreate(cmd *cobra.Command, args []string) error {
@@ -62,6 +69,16 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	settings.DBType = normalizedType
+
+	// Validate --init up front so we fail before creating any container.
+	if createInit != "" {
+		if normalizedType == types.DBTypeRedis {
+			return fmt.Errorf("--init is not supported for redis")
+		}
+		if _, err := os.Stat(createInit); err != nil {
+			return fmt.Errorf("init script not found: %s", createInit)
+		}
+	}
 
 	dbConfig, err := docker.GetDBConfig(settings.DBType, settings.Version)
 	if err != nil {
@@ -160,16 +177,77 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		config.Logger.Warn("Failed to save last settings", "error", err)
 	}
 
-	ui.Success(fmt.Sprintf("Database '%s' created", settings.Name))
+	rawURL := rawConnectionString(container, username, password)
 
-	// The connection string goes to stdout so it can be piped or eval'd.
-	fmt.Println(connectionString(container, username, password))
+	// emit writes the primary result: JSON when requested, otherwise the
+	// connection string on stdout plus human status on stderr. failed
+	// suppresses the success chrome so the returned error is not contradicted.
+	emit := func(ready *bool, failed bool) error {
+		if jsonOutput {
+			return outputJSON(containerToJSON(container, rawURL, ready))
+		}
+		if !failed {
+			ui.Success(fmt.Sprintf("Database '%s' created", settings.Name))
+		}
+		fmt.Println(credentials.FormatEnvVar(rawURL))
+		if !failed {
+			ui.Info(fmt.Sprintf("Expires in %s (at %s)",
+				humanizeHours(settings.TTLHours),
+				container.ExpiresAt.Format("2006-01-02 15:04:05")))
+			ui.Info("Reuse these settings with 'mkdb create --repeat'")
+		}
+		return nil
+	}
 
-	ui.Info(fmt.Sprintf("Expires in %s (at %s)",
-		humanizeHours(settings.TTLHours),
-		container.ExpiresAt.Format("2006-01-02 15:04:05")))
-	ui.Info("Reuse these settings with 'mkdb create --repeat'")
+	// Wait for the database to accept connections. A schema init always needs a
+	// ready database, so it forces a wait even under --no-wait.
+	if !createNoWait || createInit != "" {
+		if !jsonOutput {
+			ui.Info("Waiting for the database to become ready...")
+		}
+		waitErr := waitForReady(container, username, password, time.Duration(createWaitTimeout)*time.Second)
+		ready := waitErr == nil
+		if waitErr != nil {
+			_ = emit(&ready, true)
+			return withExitCode(exitTimeout, waitErr)
+		}
 
+		if createInit != "" {
+			if err := runInitScript(container, username, password, createInit); err != nil {
+				_ = emit(&ready, true)
+				return err
+			}
+			if !jsonOutput {
+				ui.Success(fmt.Sprintf("Applied schema from %s", createInit))
+			}
+		}
+
+		return emit(&ready, false)
+	}
+
+	return emit(nil, false)
+}
+
+// runInitScript reads a SQL script and applies it to the container's database
+// using the engine's stdin-driven client.
+func runInitScript(container *database.Container, adminUser, adminPassword, path string) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("failed to read init script: %w", err)
+	}
+
+	adapter, err := adapters.GetRegistry().Get(container.Type)
+	if err != nil {
+		return err
+	}
+	cmd := adapter.InitCommand(adminUser, adminPassword, container.DisplayName)
+	if cmd == nil {
+		return fmt.Errorf("--init is not supported for %s", container.Type)
+	}
+
+	if _, err := docker.ExecCommandStdin(container.ContainerID, cmd, data); err != nil {
+		return fmt.Errorf("failed to apply init script: %w", err)
+	}
 	return nil
 }
 

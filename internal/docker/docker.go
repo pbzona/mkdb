@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/api/types/mount"
 	"github.com/docker/docker/client"
@@ -386,6 +387,93 @@ func ExecCommand(containerID string, cmd []string) (string, error) {
 	}
 
 	return output, nil
+}
+
+// ExecCommandStdin runs a command in a container, writing stdin to it, and
+// returns the combined, demultiplexed stdout/stderr output. It is used to feed
+// schema/seed scripts to a database client (e.g. psql, mysql).
+func ExecCommandStdin(containerID string, cmd []string, stdin []byte) (string, error) {
+	ctx := context.Background()
+
+	execID, err := cli.ContainerExecCreate(ctx, containerID, container.ExecOptions{
+		Cmd:          cmd,
+		AttachStdin:  true,
+		AttachStdout: true,
+		AttachStderr: true,
+	})
+	if err != nil {
+		return "", fmt.Errorf("failed to create exec: %w", err)
+	}
+
+	resp, err := cli.ContainerExecAttach(ctx, execID.ID, container.ExecAttachOptions{})
+	if err != nil {
+		return "", fmt.Errorf("failed to attach to exec: %w", err)
+	}
+	defer resp.Close()
+
+	// Write the script to the command's stdin, then signal EOF.
+	if _, err := resp.Conn.Write(stdin); err != nil {
+		return "", fmt.Errorf("failed to write stdin: %w", err)
+	}
+	if err := resp.CloseWrite(); err != nil {
+		return "", fmt.Errorf("failed to close stdin: %w", err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	if _, err := stdcopy.StdCopy(&stdout, &stderr, resp.Reader); err != nil {
+		return "", fmt.Errorf("failed to read output: %w", err)
+	}
+	output := strings.TrimSpace(stdout.String() + stderr.String())
+
+	inspect, err := cli.ContainerExecInspect(ctx, execID.ID)
+	if err != nil {
+		return output, err
+	}
+	if inspect.ExitCode != 0 {
+		return output, fmt.Errorf("command exited with code %d: %s", inspect.ExitCode, output)
+	}
+	return output, nil
+}
+
+// Ping verifies that the Docker daemon is reachable.
+func Ping(ctx context.Context) error {
+	if cli == nil {
+		return fmt.Errorf("docker client not initialized")
+	}
+	if _, err := cli.Ping(ctx); err != nil {
+		return fmt.Errorf("cannot reach Docker daemon: %w", err)
+	}
+	return nil
+}
+
+// ManagedContainer is a summary of a Docker container created by mkdb.
+type ManagedContainer struct {
+	ID    string
+	Name  string // mkdb display name (from the mkdb.name label)
+	State string // Docker state, e.g. "running", "exited"
+}
+
+// ListManaged returns all Docker containers labeled as mkdb-managed, running or
+// not. It is used by `mkdb doctor` to detect drift between Docker and mkdb's
+// own state.
+func ListManaged(ctx context.Context) ([]ManagedContainer, error) {
+	f := filters.NewArgs()
+	f.Add("label", labelManaged+"=true")
+
+	list, err := cli.ContainerList(ctx, container.ListOptions{All: true, Filters: f})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list containers: %w", err)
+	}
+
+	managed := make([]ManagedContainer, 0, len(list))
+	for _, c := range list {
+		managed = append(managed, ManagedContainer{
+			ID:    c.ID,
+			Name:  c.Labels[labelName],
+			State: c.State,
+		})
+	}
+	return managed, nil
 }
 
 // CreateUser creates a new user in the database. admin* are the privileged

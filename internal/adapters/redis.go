@@ -81,6 +81,11 @@ func (r *RedisAdapter) RotatePasswordCommand(adminUser, adminPassword, username,
 	return nil
 }
 
+func (r *RedisAdapter) InitCommand(adminUser, adminPassword, dbName string) []string {
+	// Loading a SQL/schema script does not apply to Redis.
+	return nil
+}
+
 func (r *RedisAdapter) FormatConnectionString(username, password, host, port, dbName string) string {
 	// Redis connection string format: redis://[user][:password]@host:port[/database]
 	// Standard Redis doesn't use username (pre-Redis 6 ACLs)

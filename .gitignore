@@ -34,5 +34,7 @@ go.work.sum
 # Editor/IDE
 # .idea/
 # .vscode/
-mkdb
-mkdb-test
+
+# Built binaries (anchored to repo root so skills/mkdb/ etc. aren't ignored)
+/mkdb
+/mkdb-test

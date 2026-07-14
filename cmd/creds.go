@@ -57,6 +57,10 @@ func runCredsShow(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	if jsonOutput {
+		return outputJSON(containerToJSON(container, containerURL(container), nil))
+	}
+
 	connStr, err := defaultConnectionString(container)
 	if err != nil {
 		return err

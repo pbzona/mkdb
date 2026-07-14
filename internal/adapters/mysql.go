@@ -110,6 +110,11 @@ func (m *MySQLAdapter) RotatePasswordCommand(adminUser, adminPassword, username,
 	)
 }
 
+func (m *MySQLAdapter) InitCommand(adminUser, adminPassword, dbName string) []string {
+	// Reads SQL from stdin and applies it to dbName as root.
+	return append(m.adminArgs(adminPassword), dbName)
+}
+
 func (m *MySQLAdapter) FormatConnectionString(username, password, host, port, dbName string) string {
 	// If no username/password, connect as root without authentication
 	if username == "" && password == "" {

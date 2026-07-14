@@ -119,6 +119,12 @@ func (m *MongoDBAdapter) RotatePasswordCommand(adminUser, adminPassword, usernam
     }
 }
 
+// InitCommand returns a client that reads a script from stdin and applies it to
+// dbName. Return nil if loading a script isn't supported for this engine.
+func (m *MongoDBAdapter) InitCommand(adminUser, adminPassword, dbName string) []string {
+    return []string{"mongosh", "--quiet", dbName}
+}
+
 func (m *MongoDBAdapter) FormatConnectionString(username, password, host, port, dbName string) string {
     if username == "" && password == "" {
         return fmt.Sprintf("mongodb://%s:%s/%s", host, port, dbName)
@@ -205,6 +211,7 @@ The adapter will automatically be:
 | `CreateUserCommand(adminUser, adminPass, user, pass, db)` | Command to create database user | []string or nil |
 | `DeleteUserCommand(adminUser, adminPass, user, db)` | Command to delete database user | []string or nil |
 | `RotatePasswordCommand(adminUser, adminPass, user, newPass, db)` | Command to change user password | []string or nil |
+| `InitCommand(adminUser, adminPass, db)` | Client that applies a stdin script to `db` (used by `create --init`) | []string or nil |
 
 `adminUser`/`adminPass` are the container's privileged (default-user) credentials
 used to authenticate the operation; both are empty for unauthenticated databases.

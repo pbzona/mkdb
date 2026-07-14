@@ -44,6 +44,11 @@ type DatabaseAdapter interface {
 	// Returns nil if password rotation is not supported.
 	RotatePasswordCommand(adminUser, adminPassword, username, newPassword, dbName string) []string
 
+	// InitCommand returns the command that reads a schema/seed script from
+	// stdin and applies it to dbName, authenticated with the admin credentials.
+	// Returns nil if loading a script is not supported (e.g. Redis).
+	InitCommand(adminUser, adminPassword, dbName string) []string
+
 	// FormatConnectionString returns the connection string for this database
 	FormatConnectionString(username, password, host, port, dbName string) string
 

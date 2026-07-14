@@ -71,6 +71,10 @@ func runList(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to list containers: %w", err)
 	}
 
+	if jsonOutput {
+		return listJSON(containers, normalizedType, normalizedStatus)
+	}
+
 	var entries []listEntry
 	for _, c := range containers {
 		entries = append(entries, listEntry{
@@ -108,6 +112,44 @@ func runList(cmd *cobra.Command, args []string) error {
 
 	displayEntries(entries)
 	return nil
+}
+
+// listJSON emits the container list as a JSON array on stdout, honoring the
+// same type/status filters as the human-readable table.
+func listJSON(containers []*database.Container, typeFilter, statusFilter string) error {
+	result := []dbJSON{}
+	for _, c := range containers {
+		if typeFilter != "" && c.Type != typeFilter {
+			continue
+		}
+		if statusFilter != "" && effectiveStatus(c) != statusFilter {
+			continue
+		}
+		result = append(result, containerToJSON(c, containerURL(c), nil))
+	}
+
+	if showAll || statusFilter == types.StatusRemoved {
+		orphaned, err := volumes.ScanOrphaned()
+		if err != nil {
+			return fmt.Errorf("failed to scan volumes: %w", err)
+		}
+		for _, vol := range orphaned {
+			// Orphaned volumes have no engine type; skip when a type filter is set.
+			if typeFilter != "" {
+				continue
+			}
+			result = append(result, dbJSON{
+				Name:       vol.Name,
+				Type:       "-",
+				Status:     types.StatusRemoved,
+				VolumeType: types.VolumeTypeNamed,
+				VolumePath: vol.Name,
+				Size:       volumes.FormatSize(vol.Size),
+			})
+		}
+	}
+
+	return outputJSON(result)
 }
 
 // effectiveStatus reflects TTL expiry on top of the stored status.

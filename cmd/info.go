@@ -6,7 +6,6 @@ import (
 
 	"github.com/pbzona/mkdb/internal/database"
 	"github.com/pbzona/mkdb/internal/docker"
-	"github.com/pbzona/mkdb/internal/types"
 	"github.com/pbzona/mkdb/internal/ui"
 	"github.com/spf13/cobra"
 )
@@ -51,6 +50,15 @@ func runInfo(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	if jsonOutput {
+		out := containerToJSON(container, containerURL(container), nil)
+		if infoPing && isRunning(container) {
+			ok := pingContainer(container) == nil
+			out.Ready = &ok
+		}
+		return outputJSON(out)
+	}
+
 	ui.PrintContainerInfo(container)
 
 	if infoPing {
@@ -70,28 +78,9 @@ func pingContainer(container *database.Container) error {
 		return err
 	}
 
-	var probe []string
-	switch container.Type {
-	case types.DBTypePostgres:
-		user := adminUser
-		if user == "" {
-			user = "postgres"
-		}
-		probe = []string{"psql", "-U", user, "-d", container.DisplayName, "-c", "SELECT 1;"}
-	case types.DBTypeMySQL:
-		probe = []string{"mysql", "-u", "root"}
-		if adminPassword != "" {
-			probe = append(probe, "-p"+adminPassword)
-		}
-		probe = append(probe, "-e", "SELECT 1;")
-	case types.DBTypeRedis:
-		probe = []string{"redis-cli"}
-		if adminPassword != "" {
-			probe = append(probe, "-a", adminPassword)
-		}
-		probe = append(probe, "PING")
-	default:
-		return fmt.Errorf("connectivity check not supported for %s", container.Type)
+	probe, err := connectivityProbe(container.Type, container.DisplayName, adminUser, adminPassword)
+	if err != nil {
+		return err
 	}
 
 	ui.Info(fmt.Sprintf("Testing connectivity to '%s'...", container.DisplayName))
