@@ -21,4 +21,10 @@ var versionCmd = &cobra.Command{
 
 func init() {
 	rootCmd.AddCommand(versionCmd)
+
+	// Wire up `mkdb --version` / `mkdb -v`. Cobra adds the -v shorthand
+	// automatically because it is otherwise unused, and it short-circuits
+	// before PersistentPreRunE, so no config/Docker init is required.
+	rootCmd.Version = Version
+	rootCmd.SetVersionTemplate("mkdb {{.Version}}\n")
 }

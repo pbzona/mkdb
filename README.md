@@ -282,7 +282,7 @@ Exit codes: `0` all checks pass, `3` Docker is unreachable, `1` another check fa
 
 ### `mkdb version`
 
-Print the mkdb version.
+Print the mkdb version. Also available as the `mkdb --version` / `mkdb -v` flags.
 
 ## Container lifecycle
 
