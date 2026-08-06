@@ -40,6 +40,7 @@ func init() {
 type listEntry struct {
 	name    string
 	dbType  string
+	version string
 	status  string
 	port    string
 	ttl     string
@@ -78,11 +79,12 @@ func runList(cmd *cobra.Command, args []string) error {
 	var entries []listEntry
 	for _, c := range containers {
 		entries = append(entries, listEntry{
-			name:   c.DisplayName,
-			dbType: c.Type,
-			status: effectiveStatus(c),
-			port:   c.Port,
-			ttl:    formatTTL(c),
+			name:    c.DisplayName,
+			dbType:  c.Type,
+			version: majorVersion(c.Version),
+			status:  effectiveStatus(c),
+			port:    c.Port,
+			ttl:     formatTTL(c),
 		})
 	}
 
@@ -95,6 +97,7 @@ func runList(cmd *cobra.Command, args []string) error {
 			entries = append(entries, listEntry{
 				name:    vol.Name,
 				dbType:  "-",
+				version: "-",
 				status:  types.StatusRemoved,
 				port:    "-",
 				ttl:     "-",
@@ -192,13 +195,14 @@ func displayEntries(entries []listEntry) {
 
 	nameWidth := columnWidth("NAME", entries, func(e listEntry) string { return e.name })
 	typeWidth := columnWidth("TYPE", entries, func(e listEntry) string { return e.dbType })
+	versionWidth := columnWidth("VERSION", entries, func(e listEntry) string { return e.version })
 	portWidth := columnWidth("PORT", entries, func(e listEntry) string { return e.port })
 	const statusWidth = 10
 
 	fmt.Println()
-	fmt.Println(headerStyle.Render(fmt.Sprintf("%-*s  %-*s  %-*s  %-*s  %s",
-		nameWidth, "NAME", typeWidth, "TYPE", statusWidth, "STATUS", portWidth, "PORT", "TTL / SIZE")))
-	fmt.Println(strings.Repeat("─", nameWidth+typeWidth+statusWidth+portWidth+len("TTL / SIZE")+8))
+	fmt.Println(headerStyle.Render(fmt.Sprintf("%-*s  %-*s  %-*s  %-*s  %-*s  %s",
+		nameWidth, "NAME", typeWidth, "TYPE", versionWidth, "VERSION", statusWidth, "STATUS", portWidth, "PORT", "TTL / SIZE")))
+	fmt.Println(strings.Repeat("─", nameWidth+typeWidth+versionWidth+statusWidth+portWidth+len("TTL / SIZE")+10))
 
 	for _, e := range entries {
 		label := fmt.Sprintf("%s %s", statusGlyph[e.status], e.status)
@@ -214,13 +218,31 @@ func displayEntries(entries []listEntry) {
 			trailing = e.size
 		}
 
-		fmt.Printf("%-*s  %-*s  %s  %-*s  %s\n",
-			nameWidth, e.name, typeWidth, e.dbType, styled, portWidth, e.port, trailing)
+		fmt.Printf("%-*s  %-*s  %-*s  %s  %-*s  %s\n",
+			nameWidth, e.name, typeWidth, e.dbType, versionWidth, e.version, styled, portWidth, e.port, trailing)
 	}
 
 	fmt.Println()
 	fmt.Printf("Total: %d container(s)\n", len(entries))
 	fmt.Println()
+}
+
+func majorVersion(version string) string {
+	version = strings.TrimSpace(version)
+	if version == "" {
+		return "-"
+	}
+
+	numeric := strings.TrimPrefix(version, "v")
+	for i, r := range numeric {
+		if r < '0' || r > '9' {
+			if i > 0 {
+				return numeric[:i]
+			}
+			return version
+		}
+	}
+	return numeric
 }
 
 func columnWidth(header string, entries []listEntry, fn func(listEntry) string) int {

@@ -138,7 +138,7 @@ mkdb create postgres --name app --init ./schema.sql
 
 ### `mkdb ls` (alias `list`)
 
-List database containers.
+List database containers and their configured major versions.
 
 **Flags:**
 - `--type` — filter by type (`postgres`, `mysql`, `redis`; aliases accepted)
